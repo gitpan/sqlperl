@@ -1,0 +1,728 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+
+	<META NAME="CONTACT" CONTENT="Turner, Jim">
+
+	<META NAME="SENSITIVITY" CONTENT="UNRESTRICTED">
+   <TITLE>The SqlPerl Home Page</TITLE>
+   <META NAME="GENERATOR" CONTENT="Mozilla/3.0Gold (X11; I; SunOS 5.5.1 sun4u) [Netscape]">
+</HEAD>
+<BODY TEXT="#FFFFFF" BGCOLOR="#1000A0" LINK="#E0E000" VLINK="#EFF0B0">
+<CENTER>
+<!--VirtualAvenueBanner-->
+<FONT SIZE=-2>The above advertising does not reflect the actual opinions of the owner(s) 
+of this website nor do we endorse any products or services mentioned, in that 
+the content of the adds is beyond our control, but are required by the 
+company which hosts this site.  Direct all comments or complaints to them 
+(<A HREF="http://www.virtualave.com">http://www.virtualave.com</A>)</FONT>
+</CENTER>
+
+<DIV ALIGN=right><P><I><FONT SIZE=-1>Updated: 8/18/99</FONT></I></P></DIV>
+
+<P>
+<HR WIDTH="80%" SIZE="5"></P>
+
+<H1 ALIGN=CENTER><I>The SqlPerl Home Page</I></H1>
+
+<P>
+<HR WIDTH="80%" SIZE="5"></P>
+
+<H3 ALIGN=CENTER>SqlPerl - GUI interface to databases, by <A HREF="mailto:turnerjw@netzero.net">Jim
+Turner</A>. </H3>
+
+<P>SqlPerl is a Sequel Graphical User Interface program for performing
+SQL commands and queries to databases. SqlPerl provides the following
+primary features:</P>
+
+<UL>
+<UL>
+<LI><FONT COLOR="#FFDEAD"><A HREF="#GUI">I) Graphical user-interface for
+point-and-click SQL commands! </A></FONT></LI>
+
+<LI><FONT COLOR="#FFDEAD"><A HREF="#recmanip">II) Interactive Record Manipulation,
+ie. inserts, updates, and deletes</A></FONT></LI>
+
+<LI><FONT COLOR="#FFDEAD"><A HREF="#uploading">III) Easy uploading from
+and downloading to delimited flat-files</A>. </FONT></LI>
+
+<LI><FONT COLOR="#FFDEAD"><A HREF="#formatting">IV) Quick printable report
+generation with user-selectable formatting</A>. </FONT></LI>
+
+<LI><FONT COLOR="#FFDEAD"><A HREF="#lookup">V) Quick lookup of tables,
+fields, and data</A>.</FONT> </LI>
+</UL>
+</UL>
+
+<P>SqlPerl is written completely in <A HREF="http://www.perl.org">Perl</A>,
+a modern, high-performance scripting language and runs under X or Windows using
+the Perl/Tk X-development library and should be usable on any Unix or Windows platform
+which supports Perl, Perl/Tk, and a DBI or ODBC-supported database package.
+</P>
+
+<P>Click for <A HREF="#Requirements">System Requirements</A>.</P>
+
+<H3><A NAME="GUI"></A><FONT COLOR="#FFDEAD">I) Graphical user-interface</FONT>
+</H3>
+
+<P>The GUI provides easy user-interaction with the database with push-
+button SQL commands/queries and a text-box for typing in more complex commands.
+SqlPerl is great for database administrators who occassionally need to examine
+data, change specific fields, rows, or columns, load flat-files, generated
+quick formatted printable listings, etc. One can quickly look up data without
+having to remember table and field names and cryptic SQL commands. </P>
+
+<P><B><FONT COLOR="#FFFF00">Logging in</FONT></B> </P>
+
+<P>The user can invoke SqlPerl from the command line by simply typing:
+</P>
+
+<P><I><TT><FONT COLOR="#00FF00">sql.pl</FONT></TT></I></P>
+
+<P>at the Unix command-prompt. A small window will appear requesting the
+user to enter the desired database, user-name, and password. Clicking [Ok]
+or pressing [Enter] after typing in a password causes the user to be logged
+in. If the user is successfully logged in, the main screen will then be
+displayed. The main screen consists of the following elements from top
+to bottom and left to right: </P>
+
+<P><I>1) File specification</I>: </P>
+
+<P>The user can type in a path and file name for uploading and downloading
+or click the [File:] button to browse and select an existing file. The
+radio-button just left of the [File:] button if checked, causes query results
+to be written (appended) to the specified file. This is how to generate
+delimited flat-files from data queries. </P>
+
+<P><I>2) Delimiter</I>: </P>
+
+<P>Specify the delimiter string for use with flat-files and for displaying
+data. If doing a query and formatting is requested, the delimiter will
+be repeated to form a separator between the header and the data. Fields
+will be formatted into columns. If formatting is not requested, the delimiter
+will be used to separate the fields on the display. If File output is requested,
+the flat-file will be created using the delimiter string to separate fields.
+Records are always separated by a newline (\n). to specify a special character,
+ie. tab or dollar-sign, preceed it with a backslash, ie. \t or \x27. If
+data is being loaded from a flat-file, the delimiter used in the file should
+be specified as the delimiter here. </P>
+
+<P><I>3) Header</I>: </P>
+
+<P>Click the button just left of &quot;Header&quot; to cause the first
+line displayed for queries to contain the field names. If creating a flat-file,
+the 1st record will contain the field-names. If uploading data from a flat-
+file whose first record is a header-record, click the <I>Header</I> button.
+</P>
+
+<P><I>4) Prompt</I>: </P>
+
+<P>Check the radio-button here unless creating or uploading a flat-file
+or typing in sql-commands. When doing a query, the user may specify constraints
+(the arguments for an SQL &quot;WHERE&quot; clause) in the &quot;SQL:&quot;
+box below. The constraints should be separated by the delimiter character,
+ie. if &quot;\t&quot;, then type in &quot;<B><FONT COLOR="#00FF00">field1='value1'\tfield2='value2'...</FONT></B>&quot;.
+NOTE: Another way, which is normally easier when doing updates, is to use
+the &quot;<I>Order By</I>&quot; menu to specify the fields for the Where-clause,
+then you will be prompted to enter values for each field specified. </P>
+
+<P><I>5) <A NAME="Values"></A>Values</I>: </P>
+
+<P>When doing a SELECT and formatted output, users can specify the number
+of lines (records) to be printed per page here. The default for <I>n</I>
+is 56. A form-feed followed by any header-information will follow each
+n-th line. If doing an INSERT, the user can specify a list of values to
+be inserted into the table separated by the delimiter character. NOTE:
+This line is also used to specify the number of lines to be displayed on
+a page when doing &quot;SELECT&quot; (see &quot;<A HREF="#formatting">Formatting</A>&quot;).</P>
+
+<P>NOTE: non-numeric values must be surrounded with quotes. Single or double-quotes
+are ok, but if a value is to contain quotes, then use the other type of
+quotes, ie. &quot;John M'cBride&quot;. You can also leave this field blank
+and you will be prompted for the values. </P>
+
+<P><I>6) SQL</I>: </P>
+
+<P>You can type in SQL commands directly here in this box. To execute the
+command you typed in, click the radio-button here and then click [SELECT].
+If doing a SELECT, UPDATE, or DELETE, you can enter an entire WHERE-clause
+(minus the word &quot;WHERE&quot;) here and select the &quot;PROMPT&quot;
+button and this will be used as the WHERE clause, IF no fields are specified
+in the WHERE list. Otherwise, this field is ignored.</P>
+<P>It is also used when INSERTing data from a flat-file and using an Oracle SEQUENCE to 
+spcify one or more sequence names separated by commas.</P>
+
+<P><I>7) Table</I>: </P>
+
+<P>This listbox displays the list of all tables in the database. Click
+on a table to display it's fields in the &quot;Field&quot; box and to do
+SQL queries/commands on that table. </P>
+
+<P><I>8) Field</I>: </P>
+
+<P>This listbox displays all of the fields in the selected table (see &quot;<I>Table</I>&quot;)
+box above. Click on a field to add it to the &quot;<I>Order</I>&quot; box
+(or &quot;<I>Order By</I>&quot; box), depending on which one has the [Select]
+button checked. Double-click on a field to place its name in the &quot;<I>SQL</I>:&quot;
+line above. You select fields for the &quot;<I>Order</I>&quot; box in the
+order you wish to manipulate them. You can remove a field from the &quot;<I>Order</I>&quot;
+box by clicking on it there. </P>
+
+<P>For example, if you were working with a table called &quot;employee&quot;
+and it has four fields: id, name, extension, and salary and you wanted
+to do something like: <FONT COLOR="#FFDEAD">select name, extension, id
+from employee order by id</FONT> -or- <FONT COLOR="#FFDEAD">update employee
+set (name=&quot;Joe&quot;, entension=&quot;12345&quot;, id=3) where (id=2)</FONT>
+then you would click &quot;name&quot;, then &quot;extension&quot;, then
+&quot;id&quot; from the &quot;Field&quot; box, then click the [Select]
+button under the &quot;<I>Order By</I>&quot; box, then click &quot;id&quot;
+again from the &quot;<I>Field</I>&quot; box. </P>
+
+<P>NOTE: You do not have to click any field names if all fields are going
+to be used and in the same order that they appear in the &quot;<I>Field</I>&quot;
+box. You can now click [SELECT] or [INSERT], depending on which SQL statement
+you wish to do. If doing INSERT, you will be prompted for the current &quot;id&quot;,
+enter 2. You are then prompted for the &quot;name&quot;, &quot;extension&quot;,
+then the new &quot;id&quot;. </P>
+
+<P><I>8) Order</I>: </P>
+
+<P>This box specifies the order in which fields are to be used as arguments
+in SQL commands. To add field names, click the [Select] button below the
+&quot;<I>Order</I>&quot; box, then click field names from the &quot;<I>Field</I>&quot;
+box. To remove a field-name, click that name. If no field names are in
+the &quot;<I>Order</I>&quot; box, then all field names are used in the
+order they appear in the &quot;<I>Field</I>&quot; box. If uploading from
+a delimited flatfile, use the &quot;<I>Order</I>&quot; box to specify the
+order that the field values appear in each line of the flat-file. To add
+field names, click the [Select] button below the &quot;<I>Order</I>&quot;
+box, then click field names from the &quot;<I>Field</I>&quot; box. To remove
+a field-name, click that name. </P>
+
+<P><I>9) Where</I>: </P>
+
+<P>This box which fields to prompt for constraint values when doing a SELECT,
+UPDATE, or DELETE. It is ignored when doing an INSERT. You will not be
+prompted if the values corresponding to each field in the Where list are
+specified in the VALUES field separated by the field delimiter. No quotes
+are needed around string values in either case. To add field names, click
+the [Select] button below the &quot;Where&quot; box, then click field names
+from the &quot;<I>Field</I>&quot; box. To remove a field-name, click that
+name. </P>
+
+<P><I>10) Order By</I>: </P>
+
+<P>This box specifies the order in which data records are to be sorted
+when doing a SELECT. (It represents the &quot;ORDER BY&quot; clause of
+the SELECT statement). When doing an update from a FILE, it represents
+which fields in the file contain constraint values rather than new data.
+tTo add field names, click the [Select] button below the &quot;<I>Order
+By</I>&quot; box, then click field names from the &quot;<I>Field</I>&quot;
+box. To remove a field-name, click that name. </P>
+
+<P><I>10) Descend</I> </P>
+
+<P>Check this box, if records are to be sorted in descending order (when
+doing a SELECT. </P>
+
+<P><I>11) SELECT</I> </P>
+
+<P>Click this button to execute a query or do an SQL command typed into
+the &quot;<I>SQL:</I>&quot; line. NOTE: Click the corresponding radio button
+(&quot;File:&quot;, &quot;Where:&quot;, or &quot;SQL:&quot;. If &quot;File:&quot;
+or &quot;Where:&quot; is selected, a query will be done on the current
+table, using the fields specified in the &quot;<I>Order</I>&quot; and &quot;<I>Order
+By</I>&quot; boxes and results will be displayed in a window on the screen.
+If &quot;File:&quot; is checked, the results are appended to the specified
+file&quot;. If &quot;SQL:&quot; is checked, whatever sql command is typed
+into the text box will be performed without regard to any other boxes,
+fields, or selections. </P>
+
+<P><I>12) Distinct </I></P>
+
+<P>Check this checkbox to cause the [SELECT] button to do a SELECT DISTINCT
+query. </P>
+
+<P><I>13) INSERT</I> </P>
+
+<P>Click this button to insert data into the current table. </P>
+
+<P>If the &quot;<I>File:</I>&quot; radio-button is selected, the corresponding
+file is read in as a delimited flat-file and the data inserted into the
+current table. The records in the file must be delimited by the specified
+delimiter character(s) or in columns equal to those specified in the FORMAT box; 
+and contain the correct number, datatype, and order
+of columns corresponding to what is specified in the &quot;<I>Order</I>&quot;
+box.  If using Oracle or Sprite sequences for one or more fields, then headers and 
+values for those fields should NOT be included in the flat-file or specified in 
+the &quot;<I>Order</I>&quot; box, but the fields should be specified in the 
+&quot;<I>Order By</I>&quot; box.</P>
+
+<P>For example, if you were inserting a flat-file into a table called &quot;employee&quot;
+and it has four fields: id, name, extension, and salary and you wanted
+to do something like: <FONT COLOR="#FFDEAD">insert name, extension, and salary</FONT>, and 
+use a system-generated sequence number for the &quot;id&quot; field; 
+then you would click &quot;name&quot;, then &quot;extension&quot;, then
+&quot;salary&quot; from the &quot;Field&quot; box into the &quot;<I>Order</I>&quot; box, 
+then click &quot;id&quot; into the &quot;<I>Order By</I>&quot; box, type in the 
+Oracle sequence name into the &quot;SQL&quot; box - unless the sequence name is the 
+same as the key field - i.e. &quot;id&quot;, the click the [Insert] button.</P>
+
+<P>If the &quot;<I>Where:</I>&quot; radio-button is checked, any values
+entered on the &quot;Values:&quot; line (separated with the user's chosen
+&quot;<I>Delimiter</I>&quot; character and without quotes) will be inserted
+into the current table ordered by the field names (if any) specified in
+the &quot;<I>Order</I>&quot; box. Otherwise, the user is prompted to enter
+a value for each field name appearing in the &quot;<I>Order</I>&quot; box.
+</P>
+
+<P>If the &quot;<I>SQL</I>:&quot; radio-button is checked, whatever SQL
+command typed into the text box will be executed without regard to any
+other boxes, fields, or selections. </P>
+
+<P><I>14) UPDATE </I></P>
+
+<P>Click this button to update data in the current table. </P>
+
+<P>If the &quot;<I>File:</I>&quot; radio-button is selected, the corresponding
+file is read in as a delimited flat-file and the data updated into the
+current table. The records in the file must be delimited by the specified
+delimiter character(s) and contain the correct number, datatype, and order
+of columns corresponding to what is specified in the &quot;<I>Order</I>&quot;
+box. Columns whose corresponding fields specified in the Order box, but
+not in the &quot;Order By&quot; box will have their values overridden by
+the corresponding values in the file. The values corresponding to the fields
+in the &quot;Order By&quot; box are used as constraints in a WHERE clause.
+For example, assuming a flat file &quot;f&quot; contained the following
+line: &quot;a,b\n&quot; and &quot;f&quot; was specified in the &quot;File:&quot;
+box, the &quot;Order&quot; box contained &quot;F1,F2&quot;, and the &quot;Order
+By&quot; box contained &quot;F2&quot;. Pressing &quot;UPDATE&quot; would
+execute the following sql:</P>
+
+<UL>
+<P>update table t set ( F1 = 'a') where (F2 = 'b')</P>
+</UL>
+
+<P>If the &quot;<I>Where</I>:&quot; radio-button is checked, any values
+entered on the &quot;<I>Values</I>:&quot; line will be inserted into the
+current table ordered by the field names (if any) specified in the &quot;<I>Order</I>&quot;
+box. Otherwise, the user is prompted to enter a value for each field name
+appearing in the &quot;<I>Order</I>&quot; box. The user will first be prompted
+to specify the values for any fields specified in the &quot;Where&quot;
+box for use in generating a &quot;Where&quot; clause, if no values are
+specified on the &quot;<I>SQL</I>:&quot; box. The &quot;SQL&quot; box is
+taken as a WHERE clause minus the &quot;where&quot; keyword if no fields
+are specified in the &quot;Where&quot; box, otherwise, anything in the
+&quot;SQL&quot; box is taken as a list of constraint values (separated
+by the field delimiter).</P>
+
+<P>If the &quot;<I>SQL</I>:&quot; radio-button is checked, whatever SQL
+command typed into the text box will be executed without regard to any
+other boxes, fields, or selections. </P>
+
+<P><I>15) DELETE</I> </P>
+
+<P>Click this button to delete data in the current table. To specify a
+WHERE clause, either enter it on the &quot;<I>SQL</I>:&quot; box or select
+fields into the &quot;WHERE&quot; box. If field names are in the &quot;WHERE&quot;
+box, a list of values will be looked for in the &quot;SQL&quot; box, if
+none found, you will be prompted for values. If no where-clause is specified,
+a dialog box will appear asking the user if he wishes to delete the entire
+table. A &quot;YES&quot; answer deletes the whole table. </P>
+
+<P><I>16) DESCRIBE </I></P>
+
+<P>Click this button and a window pops up displaying all field names in
+the current table along with their Oracle datatypes and maximum lengths.
+</P>
+
+<P>NOTE: The Precision values for numeric types are not shown. </P>
+
+<P><A NAME="formatting"></A><I>17) Format:</I> </P>
+
+<P>Click this button to create formatted output for the current table or
+to insert records into the current table from a column-spaced input file.
+Click it again to clear any format information appearing on the &quot;<I>Format</I>:&quot;
+line. A series of format specifiers will appear in the box at right, one
+for each field name in the &quot;<I>Fields</I>&quot; box (or each field,
+if none selected). NOTE: The &quot;<I>Delimiter</I>&quot; character is
+changed to the default of &quot;-&quot; if formatting is toggled on and
+&quot;,&quot; if toggled off. The format specifiers are Perl format specifiers
+in the general format:</P>
+
+<P><TT>@nj </TT>-OR- <TT>@n#.##</TT> </P>
+
+<P>where @ is the &quot;at-sign&quot;, </P>
+
+<P>n represents a number of characters, and </P>
+
+<P>j represents justification and is either &quot;&lt;&quot; &quot;#&quot;,
+&quot;|&quot;, or &quot;&gt;&quot;. </P>
+
+<P>n will be the maximum width of the field minus one (the @ sign represents
+the 1st character). &quot;&lt;&quot; means left-justify the field, &quot;|&quot;=center,
+and &quot;&gt;&quot;= right justify. &quot;#.##&quot; represents a right-justified
+decimal field (used only for &quot;Packed Decimal&quot; fields. </P>
+
+<P>The user can then modify the format string to change column sizes, justification,
+as well as add other characters to print out amoung the data on each line.
+</P>
+
+<P>NOTES: </P>
+
+<P>A) Formatting only applies to output (either to the screen or to both
+the screen and a file, if the &quot;<I>File:</I>&quot; radio-button is
+checked.) OR to INSERTing records from a column-spaced input flat-file.</P>
+
+<P>B) The &quot;<I>Delimiter</I>&quot; character is used to separate the
+header line from data lines, instead of separating fields, so the user
+should usually change the delimiter character from a field delimiter, such
+as a comma, or a tab, to either a dash or an &quot;=&quot; sign. The delimiter
+character will be repeated for each character of data line output, for
+example (Assume the delimiter character is the &quot;=&quot; sign: </P>
+
+<PRE><TT>        ID   EMPLOYEE           EXTENSION      SALARY</TT></PRE>
+
+<PRE><TT>        ===============================================</TT></PRE>
+
+<PRE><TT>         1   Doe, John          11111          12235.00</TT></PRE>
+
+<PRE>         2   Smith, Jack        11211          14228.00 ... </PRE>
+
+<P>C) By default, a form-feed character will be inserted after each 56th
+line of output (54 records) and the headers reprinted, if the &quot;Headers&quot;
+box is checked. To change this, enter a numeric value on the &quot;<I><A HREF="#Values">Values</A></I>:&quot;
+line. If zero, headers will print once and no formfeeds will be inserted.
+</P>
+
+<P>D) If inputting records from a column-spaced flat-file, ie. a file produced
+from formatted output, if the &quot;Header&quot; button is checked, the
+1st record in the input file is skipped (assumed to be a header) as are
+any lines starting with a form-feed (\f). If a field-delimiter is specified,
+any line containing only spaces and the delimiter character are also skipped.
+This permits &quot;formatted&quot; files to be fed back in.</P>
+
+<P>E) If inputting records from a column-spaced flat-file, fields specified
+with the &quot;&gt;&quot; (right-justify) format character will be first
+stripped of leading spaces before being added to the table. This allows
+for data written to a &quot;formatted&quot; flat-file via &quot;&gt;&quot;
+(right-justified) to be read back in properly.</P>
+
+<P><I>18) Status box: </I></P>
+
+<P>The actual SQL commands along with any status or error messages are
+displayed in this box. The user can scroll the box backwards to see a history
+for this session of the SQL commands/queries he has issued. </P>
+
+<P>NOTE: Each command is committed as it is done! There is no procedure
+for doing rollbacks. </P>
+
+<H3><A NAME="recmanip"></A><FONT COLOR="#FFDEAD">II) Interactive Record
+Manipulation, ie. inserts, updates, and deletes.</FONT></H3>
+
+<P>It is easy to manipulate records within tables interactively. SqlPerl
+can prompt users for necessary field data via popup windows and then generate
+the nessessary SQL.</P>
+
+<P>A) Inserting records interactively: To insert a record into a table,
+do the following:</P>
+
+<UL>
+<P>1) Click the name of the table to insert into from the &quot;<I>Table</I>:&quot;
+box.</P>
+
+<P>2) Click the &quot;<I>Where</I>&quot; radio-button.</P>
+
+<P>3) Select names of fields to enter data for (unless entering data for
+all fields) into the &quot;<I>Order</I>&quot; box. NOTE: You will be prompted
+to enter a value for each field. To avoid being prompted for values, you
+may enter values into the &quot;<I>Values:</I>&quot; line (one for each
+field selected in the &quot;<I>Order</I>&quot; box) separated by your chosen
+delimiter character (Do not use &quot;=&quot; or any character which appears
+in any of the values). It is NOT necessary to enclose character values
+in any quotes!</P>
+
+<P>4) Click the [INSERT] button.</P>
+
+<P>5) Enter a value for each field in the popup window and click &quot;OK&quot;.
+NOTE: To avoid being prompted for values, you may enter values into the
+&quot;<I>Values</I>:&quot; line (one for each field selected in the &quot;<I>Order</I>&quot;
+box) separated by your chosen delimiter character (Do not use &quot;=&quot;
+or any character which appears in any of the values). It is NOT necessary
+to enclose character values in any quotes!</P>
+
+<P>6) Verify that the data was correctly inserted by checking the <I>status</I>
+box at the bottom. It should display the actula SQL exeuted along with
+any database error-messages.</P>
+</UL>
+
+<P>B) Updating records interactively: To update one or more records in
+a table, do the following:</P>
+
+<UL>
+<P>1) Click the name of the table to update from the &quot;<I>Table</I>:&quot;
+box.</P>
+
+<P>2) Click the &quot;<I>Where</I>&quot; radio-button .</P>
+
+<P>3) Select names of fields to change (unless changing all fields) into
+the &quot;<I>Order</I>&quot; box. NOTE: You will be prompted to enter a
+value for each field. To avoid being prompted for values, you may enter
+values into the &quot;Values:&quot; line (one for each field selected in
+the &quot;<I>Order</I>&quot; box) separated by your chosen delimiter character
+(Do not use &quot;=&quot; or any character which appears in any of the
+values). It is NOT necessary to enclose character values in any quotes!</P>
+
+<P>4) Select constraint fields (those to be used in a &quot;Where&quot;
+clause) into the &quot;<I>Order By</I>&quot; box (the field values entered
+will be AND-ed together). NOTE: To specify a real &quot;WHERE&quot; clause,
+enter the full clause (WITHOUT the leading word &quot;WHERE&quot;) in the
+&quot;<I>SQL</I>:&quot; box and make sure nothing is in the &quot;<I>Order
+By</I>&quot; box. To avoid being prompted for constraints and having to
+specify a complete WHERE-clause, select fields into the &quot;<I>Order
+By</I>&quot; box and list the values (one for each field name in the &quot;<I>Order
+By</I>&quot; box) separated by your chosen delimiter character in the &quot;<I>SQL</I>:&quot;
+box. Do NOT enclose the values in any quotes.</P>
+
+<P>5) Click the [UPDATE] button.</P>
+
+<P>6) Enter a value for each field in the popup window and click &quot;OK&quot;.
+NOTE: To avoid being prompted for values, you may enter values into the
+&quot;<I>Values</I>:&quot; line (one for each field selected in the &quot;<I>Order</I>&quot;
+box) separated by your chosen delimiter character (Do not use &quot;=&quot;
+or any character which appears in any of the values). It is NOT necessary
+to enclose character values in any quotes!</P>
+
+<P>7) Verify that the data was correctly updated by checking the <I>status</I>
+box at the bottom. It should display the actula SQL exeuted along with
+any database error-messages.</P>
+</UL>
+
+<P>C. Deleting records interactively: To delete records from tables interactive
+do the following:</P>
+
+<UL>
+<P>1) Click the name of the table to delete records from the &quot;<I>Table</I>:&quot;
+box.</P>
+
+<P>2) Click the &quot;<I>Where</I>&quot; radio-button .</P>
+
+<P>3) (Skip this if deleting all records in the table) Select constraint
+fields (those to be used in a &quot;Where&quot; clause) into the &quot;<I>Order
+By</I>&quot; box (the field values entered will be AND-ed together). NOTE:
+To specify a real &quot;WHERE&quot; clause, enter the full clause (WITHOUT
+the leading word &quot;WHERE&quot;) in the &quot;<I>SQL</I>:&quot; box
+and make sure nothing is in the &quot;<I>Order By</I>&quot; box. To avoid
+being prompted for constraints and having to specify a complete WHERE-clause,
+select fields into the &quot;<I>Order By</I>&quot; box and list the values
+(one for each field name in the &quot;<I>Order By</I>&quot; box) separated
+by your chosen delimiter character in the &quot;<I>SQL</I>:&quot; box.
+Do NOT enclose the values in any quotes.</P>
+
+<P>4) Click the [DELETE] button.</P>
+
+<P>5) Verify that the correct records were deleted by checking the <I>status</I>
+box at the bottom. It should display the actula SQL exeuted along with
+any database error-messages. NOTE: No error message is displayed if no records
+were found which matched the specified WHERE constraints -- just no records
+are deleted even though it sais that the delete was done.</P>
+</UL>
+
+<H3><A NAME="uploading"></A><FONT COLOR="#FFDEAD">III) Easy uploading from
+and downloading to delimited flat-files. </FONT></H3>
+
+<P><I>A) Downloading</I>. </P>
+
+<P>SqlPerl permits users to upload data from flat-files into tables and
+download data from tables into flat-files. All the user needs to do to
+download data is to click the radio button left of the [File:] button and
+either enter a file name or browse for an existing one (to be appended
+to), then do a query (via the [SELECT] button). The user should follow
+the steps below: </P>
+
+<UL>
+<P>1) Click the name of the table to download from the &quot;<I>Table</I>:&quot;
+box. </P>
+
+<P>2) Click the radio-button just left of the [File:] button. </P>
+
+<P>3) Type in a file-name on the line just right of the [File:] button
+OR click the [File:] button to browse the directories and select an existing
+file for appending data to. </P>
+
+<P>4) Set the &quot;<I>Delimiter</I>&quot; character to the desired delimiter
+and click the &quot;<I>Header</I>&quot; button if a header record containing
+the column headers is to be created (it is still possible to re-upload
+the created flat-file later with a header record)! </P>
+
+<P>5) Click the field-names from the &quot;<I>Field</I>&quot; box in the
+order they are to appear in the records, unless all fields are desired
+and in the same order they appear in the &quot;<I>Field</I>&quot; box.
+</P>
+
+<P>6) Click the [SELECT] button just below the &quot;<I>Order By</I>&quot;
+box and then click field-names from the &quot;<I>Field</I>&quot; box which
+should be used to control the sorting order (the &quot;ORDER BY&quot; clause
+in an SQL &quot;SELECT&quot; statement). </P>
+
+<P>7) Optionally click the &quot;<I>Descend</I>&quot; and or the &quot;<I>Distinct</I>&quot;
+buttons. </P>
+
+<P>8) For each field to be used in a &quot;WHERE&quot; clause, double-click
+the field-name from the &quot;<I>Field</I>&quot; box, then enter the proper
+Oracle-expression, ie. &quot;like&quot;, &quot;&lt;&quot;, &quot;=&quot;,
+etc. followed by a value (surround non-numeric values with quotes). </P>
+
+<P>9) Click the [SELECT] button. You will be prompted for a value for each
+field in the &quot;<I>Order By</I>&quot; box. </P>
+
+<P>10) Check the &quot;<I>Status</I>&quot; box at the botton of the screen
+for any errors. The output will appear on your screen and be written to
+the specified file. Each record will appear on a separate line (records
+are always separated by a newline (&quot;<TT>\n</TT>&quot;) and each field
+will be separated by the specified delimiter character(s). </P>
+</UL>
+
+<P><I>B) Uploading</I>. </P>
+
+<P>To upload data from a delimited flat-file into a table, do the
+following: </P>
+
+<UL>
+<P>1) Click the name of the table to upload data into from the &quot;<I>Table</I>:&quot;
+box. </P>
+
+<P>2) Click the radio-button just left of the [File:] button. </P>
+
+<P>3) Type in a file-name on the line just right of the [File:] button
+OR click the [File:] button to browse the directories and select an existing
+file for input. NOTE: The file-name, if typed in, must already exist! </P>
+
+<P>4) Click the button just under the "Order" list and click the field-names 
+from the &quot;<I>Field</I>&quot; box in the
+order they appear in the records in the input file, unless ALL fields are desired and in
+the SAME ORDER as they appear in the &quot;<I>Field</I>&quot; box. </P>
+
+<P>5) (If doing UPDATE multiple records from a file) Click the button just 
+under the "Order By" list, then select the field(s) from the "Field" list
+which are to be used as keys (not changed).  NOTE:  A field being used as a key 
+can not be changed.  The other fields will be changed using their respective
+values.  For example:  If a table contained fields:  ID, LN, FN, MI; an update
+file contained columns in order of:  FN,ID,MI; and you wanted to change the 
+FN, and MI fields based on ID as your key; you would set the "Order" list
+to contain "FN,ID,MI", and the "Order By" list to "ID".  This would generate
+the following sql:
+
+	update yourtable set FN = :1, MI = :3 where ID = :2
+
+<P>6) Set the delimiter character(s) to that used in the file (\t=tab),
+and check the &quot;<I>Header</I>:&quot; box if the first line of the file
+is a header (to be skipped). </P>
+
+<P>7) Click [INSERT] or [UPDATE] as desired. </P>
+
+<P>8) Check the &quot;<I>Status</I>&quot; box at the botton of the screen
+for any errors. It will also show a history of each record successfully
+uploaded. </P>
+</UL>
+
+<H3><A NAME="formatting"></A><FONT COLOR="#FFDEAD">IV) Quick printable
+report generation with user-selectable formatting. </FONT></H3>
+
+<P>With SqlPerl, it is easy to produce simple, printable reports of your
+data using Perl's formatting capabilities. It also makes it easy to display
+data in nice, smooth columns with headers, etc. To format query output
+into columnar format, do the following: </P>
+
+<UL>
+<P>1) Click the name of the table to query from the &quot;<I>Table</I>:&quot;
+box. </P>
+
+<P>2) Click the radio-button just left of the [File:] button if sending
+formatted data to a file. </P>
+
+<P>3) Type in a file-name on the line just right of the [File:] button
+OR click the [File:] button to browse the directories and select an existing
+file for appending data to. You can also enter a pipe symbol (&quot;|&quot;)
+followed by a printer name to print directly to a printer. </P>
+
+<P>4) Click the field-names from the &quot;<I>Field</I>&quot; box in the
+order they are to be printed, unless all fields are desired and in the
+same order they appear in the &quot;<I>Field</I>&quot; box. </P>
+
+<P>5) Click the &quot;<I>Header</I>&quot; button if headers are desired
+and, if headers are desired and a page-length other than 56 lines is desired,
+enter the number of lines per page on the &quot;<I>Values</I>: line. If
+headers should only print once at the top of the file and no pagination
+is to be done, enter 0 (zero).  A pagebreak can be inserted between each 
+page by placing a "\f" (formfeed character) before the page-length in 
+the &quot;<I>Values</I>: line (Any non-numeric value may be placed here and 
+will print before the headers).</P>
+
+<P>6) Change the &quot;<I>Delimiter</I>&quot; to either &quot;-&quot; or
+&quot;=&quot; or &quot;*&quot; or whatever you desire (&quot;-&quot; and
+&quot;=&quot; are usually recommended). This character will be repeated
+and will fill in a line between the header line and the following record
+line. </P>
+
+<P>7) Click the [Format:] button. A default format string of format specifiers,
+one per field selected will appear on the line just right of the [Format:]
+button. You can then change the format specifiers as desired, (see section
+I, &quot;<A HREF="#formatting">Format:</A>&quot; for more details). The
+default usually provides a pretty good appearance. </P>
+
+<P>8) Click the [SELECT] button. The formatted output will display in a
+pop-up window on the screen and be written to the select file (if the radio-
+button just left of the [File:] button is checked. </P>
+</UL>
+
+<H3><A NAME="lookup"></A><FONT COLOR="#FFDEAD">V) Quick lookup of tables,
+fields, and data.</FONT> </H3>
+
+<P>SqlPerl provides quick lookup of data. The names of all tables in the
+database appear in the &quot;<I>Tables</I>&quot; box when the user logs
+in&quot;. Click on a table name to see all field-names in the table. Click
+DESCRIBE] to see all field names along with their Oracle datatypes and
+maximum lengths. </P>
+
+<P>To look up data, simply click fields, select your constraint fields
+into the &quot;<I>Where</I>&quot; box, use the &quot;<I>Order By</I>&quot;
+box to specify sort order, and click the [SELECT] button to do a query.
+You will be prompted for the constraints, which will be &quot;ANDED&quot;
+together.</P>
+
+<P>Data matching the criteria and selected field-names is displayed in
+a pop-up window on the screen. </P>
+
+<P>Press the [Format:] button to arrange the data into smooth columns,
+the &quot;<I>Header</I>:&quot; button to print the field names as headers
+at the top of the columns, and click the radio-button just left of the
+[File:] button to save the displayed query results to a text-file for printing
+(use &quot;<A HREF="#formatting">Format</A>:&quot;) or saving (unformatted,
+delimited). </P>
+
+<H3><A NAME="Requirements"></A><FONT COLOR="#FFDEAD">V). Minimum System
+Requirements: </FONT></H3>
+
+<UL>
+<P>1) Unix or M$-Windows. </P>
+
+<P>2) DBI-supported database package </P>
+
+<P>3) <A HREF="ftp://ftp.digital.com/pub/plan/perl/CPAN/src/">Perl, v.
+5.003</A> or better. </P>
+
+<P>4) <A HREF="ftp://ftp.digital.com/pub/plan/perl/CPAN/modules/by-module/Tk/">Tk400.200</A>
+(Perl/Tk Library) or better. </P>
+
+<P>5) Either <A HREF="ftp://ftp.digital.com/pub/plan/perl/CPAN/modules/by-module/DBI/">Perl:DBI</A>
+and <A HREF="ftp://ftp.digital.com/pub/plan/perl/CPAN/modules/by-module/DBD/">DBD:your-database</A>
+OR DBD:ODBC interface (Windows). </P>
+
+<P>
+<HR WIDTH="80%" SIZE="5"></P>
+</UL>
+
+</BODY>
+<IMG SRC="http://turnerville.wwol.com/cgi-bin/access_log.pl?VA_SqlPerl">
+</HTML>

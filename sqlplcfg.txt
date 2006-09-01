@@ -1,0 +1,11 @@
+dbname=testdb
+dbname=proddb
+dbuser=testuser
+dbuser=root
+dbuser=me
+dbtype=ODBC
+host=
+host=remotehost.domain.com:8001
+host=host2.Edit..sqlplcfg.txt.to.change.this.stuff:8016
+browser=start
+xsl=http://home.mesh/net/turnerjw/jim/SpriteXml2Html.xsl

@@ -1,0 +1,112 @@
+SqlPerl Plus, by Jim Turner
+
+SqlPerlPlus is a Perl/Tk-based GUI tool for performing basic queries and 
+SQL database table manipulation similar to "sa" or "Sql Plus", et. al.  
+The biggest differences between this tool and others is:
+
+1)	It's graphical.
+2)	It can work with any database that Perl/DBI can talk to.
+3)	It is user-configurable via an ascii text file (sqlplcfg.txt)
+4)	It's free, opensource, and written in Perl/Tk.
+5)	Easy auto and manual formatting for report generation.
+6)	It can load table data into tables and write out table data in several 
+	formats, including delimited flatfiles (you choose field and record
+	delimiters), columised (padded with spaces to desired widths),
+	XML, and even MS-Excel (.xls).
+7)	When used to load data into a table in the formats mentioned in #5
+	above, it can generate a Perl script to automate this process.  This 
+	is useful when needing to create a program to periodically load a 
+	table from a regularly-updated file on an ongoing basis.
+
+For additional information, visit the homepage at:
+
+http://home.mesh.net/turnerjw/jim/sqlperl.html
+
+SqlPerl is written completely in Perl, a modern, high-performance scripting 
+language and runs under X or Windows using the Perl/Tk X-development library 
+and should be usable on any Unix or Windows platform which supports Perl, 
+Perl/Tk, and a DBI or ODBC-supported database package.
+
+SqlPerl provides easy user-interaction with the database with push-
+button SQL commands/queries and a text-box for typing in more complex commands.
+SqlPerl is great for database administrators who occassionally need to examine
+data, change specific fields, rows, or columns, load flat-files, generated
+quick formatted printable listings, etc. One can quickly look up data without
+having to remember table and field names and cryptic SQL commands.
+
+SqlPerl also allows one to both load data from and write data out to M$-Excel 
+spreadsheets!  When one loads formatted or delimited data into a table using 
+SqlPerl, a Perl script is automatically generated which can then be used later 
+to load or reload data in the same format into the same table.  This allows one 
+to test load data initially into a table, then have a ready-made cron-job to 
+do all subsequent loads / reloads!  This script is saved to the file 
+"sqltemp.pl", which can easily be renamed.
+
+To install (Windows):    Stop - download the self-extracting "sqlplsetup.exe" 
+from my homepage (previously mentioned above) and run it.
+
+To install (Linux/Unix/MacOS):
+
+1.  Make sure Perl and Perl/Tk are installed on your system.
+2.  Make sure to obtain the following Perl modules are installed on your 
+system:  They are all available at my homepage and CPAN and are 
+all single-file pure-Perl modules.
+
+	Tk::JDialog
+	Tk::JFileDialog
+	Tk::JBrowseEntry
+	Tk::JOptionmenu
+	JCutCopyPaste
+
+3.	Copy "sql.pl", "sqlmake.pl", and "sqlplcfg.txt", "sqlpl.bin", and 
+"sqlpl.dat" to the same directory somewhere in your path.  
+4.	Edit the file "sqlpl.bin" with your favorate text editor, to add your 
+user-name to give yourself access to tables.
+5.	Run "sqlmake.pl" to "compile" (encrypt) "sqlpl.bin" to "sqlpl.dat".
+6.	With a web-browser, view the file "sqlperl.html" for docs.
+7.	sql.pl &
+
+Documentation for setting up security using "sqlpl.bin" and "sqlmake.pl":
+
+SqlPerl prevents unauthorized access to database tables via an encrypted 
+security file called "sqlpl.dat".  It is built from a text-based configuration 
+file called "sqlpl.bin" by "sqlmake.pl".  Each line represents a list of 
+user-ids and what they are allowed to access.  Note:  "user" refers to a 
+user's system login (account) name.  "dbuser" refers to a database's login 
+usernames.
+
+The general syntax is:
+
+--,user1[,user2,user3...]
+
+	Users in this list can access any table in any database.
+
+dbtype,user1[,user2,user3...]
+
+	Users in this list can access any table in any database of this type, ie.:
+
+Oracle,oracleuser1,oracleuser2
+
+dbname,user1[,user2,user3...]
+
+	Users in this list can access any table in any database of this name, ie.:
+
+employee_database,payroll_user,accounting_user
+
+dbname:dbuser,user1[,user2,user3...]
+
+	Users in this list can access any table in any database of this name under 
+	the database login name "dbuser".
+
+dbname:dbuser:table1,user1[,user2,user3...]
+
+	Users in this list can access only table "table1" in any database of this 
+	name under the database login name "dbuser".
+
+dbtype:dbname:dbuser,user1[,user2,user3...]
+
+	Users in this list can access any table the database of this name and type 
+	under.
+
+NOTE:  As of v. 3.97, you must create a file in your home directory called ".sqlrw" (it can be empty).  Otherwise, sql.pl operates in READONLY mode!
+

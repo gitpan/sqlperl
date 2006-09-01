@@ -1,0 +1,4 @@
+--,root,Administrator,everyone,oracle
+private_databasename:private_user:onlythistablename,onlythisunixuser
+private_databasename:public_user::thisuserseesalltables,sodoesthisuser
+
