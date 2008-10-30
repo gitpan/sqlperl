@@ -1,5 +1,3 @@
-SqlPerl Plus, by Jim Turner
-
 SqlPerlPlus is a Perl/Tk-based GUI tool for performing basic queries and 
 SQL database table manipulation similar to "sa" or "Sql Plus", et. al.  
 The biggest differences between this tool and others is:
@@ -65,6 +63,62 @@ user-name to give yourself access to tables.
 5.	Run "sqlmake.pl" to "compile" (encrypt) "sqlpl.bin" to "sqlpl.dat".
 6.	With a web-browser, view the file "sqlperl.html" for docs.
 7.	sql.pl &
+
+==========================================================================
+
+	Here is what to do to get the SqlPerlPlus database GUI tool to work 
+with Sybase:
+
+I)	For installing & using the binary:
+
+	1)	Install the Sybase Openclient (v. 12.5+)
+	2)	Open Administrative Tools.Data Sources(ODBC) and add a System DSN 
+		with the following options:  Driver should be "Sybase System 11", 
+		then the Data Source Name should be "mbxdev"; 
+		Server Name:  10.4.1.100:4100; and the 
+		Database Name:  "mbxdev_propval".
+	3)	Place the binary (sqlx.exe) into your path and touch a file 
+		called .sqlrw (unless you only want "readonly" database access).
+		NOTE:  If you have ActivePerl already installed on your system, 
+		but wish to install the binary, place it in a directory OTHER
+		than c:\perl\bin.
+	4)	Create/Edit a text file in the same directory called 
+		"sqlplcfg.txt" that has the following lines in it:
+
+		dbname=<dsn1>  (You can specify this multiple times, once for each 
+			dsn you want in the dropdown list)
+		dbuser=<username>  (You can specify this multiple times, once for 
+			each user you want in the dropdown list)
+		dbtype=Sybase  (Make Sybase the default database selected)
+		use=propval  (You can specify this multiple times, once for each 
+			database you want in the USE dropdown list)
+		browser=start
+
+		The Full form of the dbname, dbuser, and dbtype lines are:
+		
+		dbcmd=<value>[:{<Attributes>}<initial cmd1>[;<initial cmd-n>...][:<theme-name>]
+
+			[] indicate optional values; Attributes take the form:  attr1 => value1[,attbn => valuen...]
+			<initial cmd>s are SQL commands to be run when starting up.  <theme-name> is any theme specified 
+			in the file .myethemes.  Attributes, initial commands, and theme are taken first from the selected 
+			dbuser, then dbname, then dbtype.
+
+		EXAMPLE:  dbname=propval_core:{AutoCommit => 1, noplaceholders => 0}:set TEXTSIZE 65535:Blue
+
+
+II)	(Only if building from source - not needed for binary):
+
+	1)	Install ActivePerl (latest 5.6.8 build 817 from www.activestate.com).
+	2)	Install the following CPAN modules via PPM:  Spreadsheet-WriteExcel, Spreadsheet-ParseExcel-Simple, and DBI.
+	3)	Install the following modules from my website:  JBrowseEntry, JCutCopyPaste, JDialog, JFileDialog, JOptionmenu, and setPalette.
+	4)	Obtain sql.pl from Jim and place it in c:\perl\bin.
+	5)	Download DBD-Sybase, v. 1.04.6 or better from http://www.peppler.org/downloads/ActiveState/.
+	6)	Open a DOS shell and switch to where you downloaded this zip file to and unzip it.
+	7)	Switch into the directory it creates (DBD-Sybase)
+	8)	Run the command:  "ppm install DBD-Sybase.ppd"
+	9)	Switch to the c:\perl\bin\ directory and run the command:  "pp -o sql.exe sql.pl”.
+
+==========================================================================
 
 Documentation for setting up security using "sqlpl.bin" and "sqlmake.pl":
 

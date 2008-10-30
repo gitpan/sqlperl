@@ -6,12 +6,12 @@
 #MACHINE FOR (POSSIBLY OLDER) INSTALLED PERL LIBS (IF HE HAS PERL INSTALLED)!
 BEGIN
 {
-	if ($0 =~ /exe$/i)
+	if ($0 =~ /exe$/io)
 	{
 		while (@INC)
 		{
 			$_ = shift(@INC);
-			push (@myNewINC, $_) if (/(?:cache|CODE)/);
+			push (@myNewINC, $_) if (/(?:cache|CODE)/o);
 		}
 		@INC = @myNewINC;
 	}
@@ -33,6 +33,7 @@ use Text::Wrap;
 
 $| = 1;
 $newwhere = 1;
+$popGeometry = 0;
 
 #$dbi_err = \$DBI::err;
 #$dbi_errstr = \$DBI::errstr;
@@ -82,14 +83,25 @@ $dbname = '';
 %dbtypes = ();
 %precmds = ();
 %attbs = ();
+%dfltusers = ();
 $preStatus = '';
+$prevTableSearch = undef;
+$prevFieldSearch = undef;
 
 #$os = 'WINDOWS NT'  unless (defined $os);
 #$os = 'UNIX'  unless (defined $os);
 $os = $^O;
 
-$browser ||= 'start'  if ($os =~ /Win/i);
-$dbtype = 'Oracle'  unless (defined $dbtype);
+$bummer = ($^O =~ /Win/o) ? 1 : 0;
+if ($bummer)
+{
+	$ENV{HOME} ||= $ENV{USERPROFILE}  if (defined $ENV{USERPROFILE});
+	$ENV{HOME} ||= $ENV{ALLUSERSPROFILE}  if (defined $ENV{ALLUSERSPROFILE});
+	$ENV{HOME} =~ s#\\#\/#gso;
+}
+
+$browser ||= 'start'  if ($bummer);
+$dbtype = 'Sprite'  unless (defined $dbtype);
 
 $pgmhome = $0;
 #$pgmhome =~ s#sql\.pl[^/]*$##;
@@ -117,27 +129,7 @@ else
 $oplist = ['=','!=','like','not like','<','>','<=','>=','is','is not','in'];
 #$oplist = ['=','!=','like','not like','<','>','<=','>=','is','is not','=~','!~']  if ($sprite);
 
-#if ($ARGV[0]) #ALLOWS COMMAND-LINE OF DB INFO (sql.pl dbname dbuser dbpswd)
-if (0)        #WE NO LONGER ALLOW COMMAND-LINE ENTRY FOR SECURITY REASONS :-(
-{
-	$dbname = $ARGV[0] || '';
-	$dbuser = $ARGV[1] || '';
-	$dbpswd = $ARGV[2] || '';
-	@dbname = split(/:/,$dbname);
-	$dbname = 'T:' . $dbname  if ($#dbname == 1);
-
-	&dbconnect();
-
-	$didlogin = 0;
-    #$didlogin = 1  if ($$dbi_err == 0);
-	$didlogin = 1  unless (DBI->err);
-#$didlogin = 1;
-	&mainstuff  if ($didlogin);
-	&exitFn();
-	exit (0);
-}
-
-my $vsn = '4.8';
+my $vsn = '5.15';
 my $headTitle = 'SqlPerl Plus, v. '.$vsn;
 my $helpurl = 'http://home.mesh.net/turnerjw/jim/sqlperl.html';
 my ($OK, $Cancel) = ('~OK', '~Cancel');
@@ -147,11 +139,16 @@ my ($OK, $Cancel) = ('~OK', '~Cancel');
 
 sub loginWindow
 {
-	$MainWin->destroy  if ($MainWin);
 	$dB->disconnect  if ($dB);
+	if ($MainWin)
+	{
+		$MainWin->focus();
+		$MainWin->raise();
+		$MainWin->destroy;
+	}
 
 	$MainWin = MainWindow->new;
-$MainWin->title($headTitle);
+	$MainWin->title($headTitle);
 
 #FETCH ANY USER-SPECIFIC OPTIONS FROM sql.ini:
 
@@ -162,10 +159,10 @@ $MainWin->title($headTitle);
 		while (<PROFILE>)
 		{
 			chomp;
-			s/[\r\n\s]+$//;
-			s/^\s+//;
-			next  if (/^\#/);
-			($opt, $val) = split(/\=/, $_, 2);
+			s/[\r\n\s]+$//o;
+			s/^\s+//o;
+			next  if (/^\#/o);
+			($opt, $val) = split(/\=/o, $_, 2);
 			${$opt} = $val  if ($opt);
 		}
 		close PROFILE;
@@ -174,7 +171,7 @@ $MainWin->title($headTitle);
 	$c = $palette  if ($palette);
 	unless ($c)
 	{
-		if ($os =~ /Win/i)
+		if ($os =~ /Win/io)
 		{
 			if (open (T, ".Xdefaults") || open (T, "$ENV{HOME}/.Xdefaults")
 				|| open (T, "${pgmhome}Xdefaults") || open (T, "/etc/Xdefaults"))
@@ -182,7 +179,7 @@ $MainWin->title($headTitle);
 				while (<T>)
 				{
 					chomp;
-					if (/tkPalette\s*\=\s*\"([^\"]+)\"/)
+					if (/tkPalette\s*\=\s*\"([^\"]+)\"/o)
 					{
 						$c = $1;
 						last;
@@ -248,7 +245,7 @@ $MainWin->title($headTitle);
 	$sysidText = $sysidFrame->JBrowseEntry(
 			-btntakesfocus => 0,
 			-variable => \$dbname,
-			-browsecmd => sub { $dbtype = $dbtypes{$dbname}  if ($dbtypes{$dbname}) },
+			-browsecmd => \&setDefaults,
 			-width  => 12);
 	$sysidText->pack(
 			-side   => 'bottom',
@@ -256,7 +253,7 @@ $MainWin->title($headTitle);
 			-padx   => '2m',
 			-pady   => '2m',
 			-fill   => 'x');
-
+	$sysidText->bind('<FocusOut>' => \&setDefaults);
 	$dbnameLabel = $dbnameFrame->Label(-text => 'User');
 	$dbnameLabel->pack(-side => 'top',
 			-fill => 'x',
@@ -291,7 +288,6 @@ $MainWin->title($headTitle);
 			-padx   => '2m',
 			-pady   => '2m',
 			-fill   => 'x');
-
 	$lognokButton = $lognbtnFrame->Button(
 			-padx => 11,
 			-pady =>  4,
@@ -458,10 +454,12 @@ $MainWin->title($headTitle);
 	$pswdText->bind('<Escape>' => [$logncanButton => "Invoke"]);
 	$attbText->bind('<Return>' => [$lognokButton => "Invoke"]);
 	$attbText->bind('<Escape>' => [$logncanButton => "Invoke"]);
+	$MainWin->focus(-force);
 	$sysidText->focus;
 	$sysidText->selectionRange(0,'end');
 	$usefmt = 0;
 	$newwhere = 1;
+	$MainWin->raise();
 
 	MainLoop;
 }
@@ -488,7 +486,7 @@ sub mainstuff
 	$fileMenubtn->command(-label => 'Alter table...', -underline =>0, -command => [\&altertable]);
 	$fileMenubtn->command(-label => 'Break', -underline =>0, -command => sub {$abortit = 1;});
 	$fileMenubtn->command(-label => 'Create(setup)',    -underline =>0, -command => [\&dodescribe,3]);
-	$fileMenubtn->command(-label => 'Describe',    -underline =>0, -command => \&dodescribe);
+	$fileMenubtn->command(-label => 'Describe',    -underline =>0, -command => [\&dodescribe,-1]);
 	$fileMenubtn->command(-label => 'Edit',    -underline =>0, -command => \&editfid);
 	$fileMenubtn->command(-label => 'Fields',    -underline =>0, -command => [\&dodescribe,2]);
 	$fileMenubtn->command(-label => 'field Names',    -underline =>6, -command => [\&dodescribe,1]);
@@ -499,7 +497,6 @@ sub mainstuff
 	$fileMenubtn->command(-label => 'Reload',    -underline =>0, -command => \&loadtable);
 	$fileMenubtn->command(-label => 'Sprite',    -underline =>0, -command => \&doSprite);
 	$fileMenubtn->command(-label => 'M$-Excel',    -underline =>1, -command => \&doExcel);
-#	$fileMenubtn->cascade(-label => 'Use', -menuitems => [
 	if ($#usedbs >= 0)
 	{
 		my @usemenuItems = ();
@@ -507,7 +504,7 @@ sub mainstuff
 		for (my $i=0;$i<=$#usedbs;$i++)
 		{
 			$usedb = $usedbs[$i];
-			$usetheme = ($usedb =~ s/\:(.*)//) ? $1 : '';
+			$usetheme = ($usedb =~ s/\:(.*)//o) ? $1 : '';
 			push (@usemenuItems, [Button => $usedb, -command => [\&doUseDB, $usedb, $usetheme]]);
 		}
 		$fileMenubtn->cascade(-label => 'Use', -menuitems => \@usemenuItems);
@@ -520,12 +517,13 @@ sub mainstuff
 	$fileMenubtn->command(-label => 'eXit',    -underline =>1, -command => \&exitFn);
 
 	my $editMenubtn = $w_menu->Menubutton(-text => 'Edit', -underline => 0);
-	$editMenubtn->command(-label => 'Clear', -underline =>4, -command => \&clearFn);
+	$editMenubtn->command(-label => 'Clear Sql', -underline =>6, -command => \&clearFn);
+	$editMenubtn->command(-label => 'Clear Msgs', -underline =>6, -command => \&clearMsgFn);
 	$editMenubtn->separator;
 	$editMenubtn->command(-label => 'Copy',  -underline =>0, -command => [\&doCopy]);
 	$editMenubtn->command(-label => 'cuT',   -underline =>2, -command => [\&doCut]);
 	$editMenubtn->command(-label => 'Paste (Clipboard)', -underline =>0, -command => [\&doPaste,'CLIPBOARD']);
-	$editMenubtn->command(-label => 'Paste (Primary)',   -underline =>8, -command => [\&doPaste,'PRIMARY']);
+	$editMenubtn->command(-label => 'Paste (Primary)',   -underline =>9, -command => [\&doPaste,'PRIMARY']);
 
 	if (open (T, ".myethemes") || open (T, "$ENV{HOME}/.myethemes")
 			|| open (T, "${pgmhome}myethemes"))
@@ -536,7 +534,7 @@ sub mainstuff
 		while (<T>)
 		{
 			chomp;
-			($themename, $themecode) = split(/\:/);
+			($themename, $themecode) = split(/\:/o);
 			$themeCodeHash{$themename} = $themecode;
 			eval "\$themeMenuBtn->command(-label => '$themename', -command => sub {&setTheme($themename);});";
 		}
@@ -551,7 +549,7 @@ sub mainstuff
 		chomp($startfpath);
 		close T;
 	}
-	$startfpath = '.'  unless ($startfpath =~ /\S/);
+	$startfpath = '.'  unless ($startfpath =~ /\S/o);
 
 	$commitMenubtn = $w_menu->Menubutton(-text => 'Commit', -underline => 0);
 	$commitMenubtn->command(-label => 'Commit', -underline =>0, -command => [\&docommit]);
@@ -694,6 +692,11 @@ sub mainstuff
 			-fill	=> 'x');
 	my $sqlboxFrame = $toprFrame->Frame;
 	my $sqlLabel = $sqlboxFrame->Label(-text=>'SQL: ');
+#	$sqlLabel = $sqlboxFrame->Button(
+#			-padx => 11,
+#			-pady =>  4,
+#			-text => 'SQL:',
+#			-command => [\&clearFn]);
 	$sqlLabel->pack(-side => 'left');
 	$sqlText = $sqlboxFrame->Text(
 			-height => $sqlheight);
@@ -756,10 +759,11 @@ sub mainstuff
 			-text => 'Format:',
 			-command => [\&setdfltfmt]);
 	my $fmtTextWidth = 48;
-	$fmtTextWidth = 80  unless ($os =~ /x|solaris/);
+	$fmtTextWidth = 80  unless ($os =~ /x|solaris/o);
 	$fmtText = $fmtFrame->JBrowseEntry(
 			#-height => 6,
 			-variable => \$myfmt,
+			-noselecttext => 1,
 			#-tabcomplete => 1,
 			-browsecmd => sub {$fmtTextSel = $myfmt;}, 
 			-width  => $fmtTextWidth);
@@ -843,12 +847,83 @@ sub mainstuff
 
 	my $selectFrame = $MainWin->Frame;
 	my $tableFrame = $selectFrame->Frame;
-	$tableHead = $tableFrame->Label(
-			-text   => 'Table',
-			-relief => 'sunken');
-	$tableTail = $tableFrame->Label(
-			-text   => '',
-			-relief => 'flat');
+#	$tableHead = $tableFrame->Label(
+#			-text   => 'Table',
+#			-relief => 'sunken');
+	$tableHeadFrame = $tableFrame->Frame(
+			-borderwidth => 2,
+			-relief => 'sunken')->pack(-side => 'top',
+			-fill   => 'x',
+			-expand => 'yes');
+	$tableHead = $tableHeadFrame->JBrowseEntry(
+			-label   => 'Table:',
+			-variable => \$tableSearch,
+			-relief => 'flat',
+			-labelrelief => 'flat',
+			-borderwidth => 0,
+			-entryborderwidth => 0,
+			-buttonborderwidth => 0,
+			-noselecttext => 1,
+			-width => 7,
+			-browse => 1,
+			-nobutton => 1,
+			-altbinding => 'Return=Go',
+			-browsecmd => sub {
+				my $saveSearchStr = $tableSearch;
+				my @listsels = $tableList->get('0','end');
+				my $altbinding = pop(@_);
+				if ($altbinding =~ /return/o)
+				{
+					my $startIndex = $prevTableSearch || -1;
+					my $indx = $startIndex + 1;
+					while ($indx != $startIndex)
+					{
+						$indx = 0  if ($indx > $#listsels);
+						if ($listsels[$indx] =~ /^$tableSearch/)
+						{
+							$tableList->selectionClear($prevTableSearch)
+									if (defined $prevTableSearch);
+							$tableList->activate($indx);
+							$tableList->selectionSet($indx);
+							$tableList->update();
+							$tableList->see($indx);
+							$prevTableSearch = $indx;
+							last;
+						}
+						++$indx;
+					}
+					return;
+				}
+				unless ($tableSearch =~ /\S/o)
+				{
+					$tableList->activate($i);
+					$tableList->update();
+					$tableList->see($i);
+				}
+				foreach my $i (0..$#listsels)   #SEARCH FOR TRUE EQUALITY.
+				{
+					if ($listsels[$i] =~ /^$tableSearch/)
+					{
+						$tableList->selectionClear('0','end');
+						$tableList->activate($i);
+						$tableList->selectionSet($i);
+						$tableList->update();
+						$tableList->see($i);
+						$tableSearch = $saveSearchStr;
+						return 'nolist';
+					}
+				}
+				return 'nolist';
+			});
+#	$tableTail = $tableFrame->Label(
+#			-text   => '',
+#			-relief => 'flat');
+	$tableTail = $tableFrame->JBrowseEntry(
+			-label => 'Limit:',
+			-variable => \$selectLimit,
+			#-noselecttext => 1,
+			-width => 5,
+			-choices => ['', 10, 50, 100, 500, 1000, 2000, 5000, 10000, 50000]);
 	$tableList = $tableFrame->Scrolled('Listbox',
 			-scrollbars => 'se', 
 			-width	 => 16,
@@ -857,8 +932,11 @@ sub mainstuff
 			-exportselection => 0,
 			-selectmode => 'browse');
 	&BindMouseWheel($tableList)  if ($WheelMouse);
+	$tableList->Subwidget('xscrollbar')->configure(-takefocus => 0);
+	$tableList->Subwidget('yscrollbar')->configure(-takefocus => 0);
 
 	$tableHead->pack(-side => 'top',
+#			-ipady => 2,
 			-fill   => 'x',
 			-expand => 'yes');
 	$tableTail->pack(-side => 'bottom',
@@ -869,24 +947,98 @@ sub mainstuff
 			-expand => 'yes');
 
 	my $fieldFrame = $selectFrame->Frame;
-	$fieldHead = $fieldFrame->Label(
-			-text   => 'Field',
-			-relief => 'sunken');
-	$fieldTail = $fieldFrame->Label(
-			-text   => '',
-			-relief => 'flat');
+#	$fieldHead = $fieldFrame->Label(
+#			-text   => 'Field',
+#			-relief => 'sunken');
+	$fieldHeadFrame = $fieldFrame->Frame(
+			-borderwidth => 2,
+			-relief => 'sunken')->pack(-side => 'top',
+			-fill   => 'x',
+			-expand => 'yes');
+	$fieldHead = $fieldHeadFrame->JBrowseEntry(
+			-label   => '  Field:  ',
+			-variable => \$fieldSearch,
+			-relief => 'flat',
+			-labelrelief => 'flat',
+			-borderwidth => 0,
+			-entryborderwidth => 0,
+			-buttonborderwidth => 0,
+#			-framehighlightthickness => 0,
+			-noselecttext => 1,
+			-width => 7,
+#			-choices => [''],
+			-browse => 1,
+			-nobutton => 1,
+#	-listcmd => sub {print STDERR "Howdy!"; return "nolist"},
+			-altbinding => 'Return=Go',
+			-browsecmd => sub {
+				my $saveSearchStr = $fieldSearch;
+				my @listsels = $fieldList->get('0','end');
+				my $altbinding = pop(@_);
+				if ($altbinding =~ /return/o)
+				{
+					my $startIndex = $prevFieldSearch || -1;
+					my $indx = $startIndex + 1;
+					while ($indx != $startIndex)
+					{
+						$indx = 0  if ($indx > $#listsels);
+						if ($listsels[$indx] =~ /^$fieldSearch/)
+						{
+							$fieldList->selectionClear($prevFieldSearch)
+									if (defined $prevFieldSearch);
+							$fieldList->activate($indx);
+							$fieldList->selectionSet($indx);
+							$fieldList->update();
+							$fieldList->see($indx);
+							$prevFieldSearch = $indx;
+							last;
+						}
+						++$indx;
+					}
+					return;
+				}
+				unless ($fieldSearch =~ /\S/o)
+				{
+					$fieldList->activate($i);
+					$fieldList->update();
+					$fieldList->see($i);
+				}
+				foreach my $i (0..$#listsels)   #SEARCH FOR TRUE EQUALITY.
+				{
+					if ($listsels[$i] =~ /^$fieldSearch/)
+					{
+						$fieldList->selectionClear('0','end');
+						$fieldList->activate($i);
+						$fieldList->selectionSet($i);
+						$fieldList->update();
+						$fieldList->see($i);
+						$fieldSearch = $saveSearchStr;
+						return 'nolist';
+					}
+				}
+				return 'nolist';
+			});
+	$fieldTail = $fieldFrame->Button(
+			-text   => 'Select all fields',
+			-pady    => '0m',
+			-command => sub {
+					my @allFields = $fieldList->get('0', 'end');
+					if ($#allFields >= 0)
+					{
+						pop @allFields;
+						$cmd = "\$".$orderSel."List->insert('end',\@allFields);";
+						eval $cmd;
+					}
+			});
 	$fieldList = $fieldFrame->Scrolled('Listbox',
 			-scrollbars => 'se', 
 			-width	 => 16,
 			-height => $listheight,
 			-relief => 'sunken',
 			-selectmode => 'browse');
-                #$fieldScrollY = $fieldFrame->Scrollbar(
-                #        -relief => 'sunken',
-                #        -orient => 'vertical',
-                #        -command=> [$fieldList => 'yview']);
-                #$fieldList->configure(-yscrollcommand=>[$fieldScrollY => 'set']);
 	&BindMouseWheel($fieldList)  if ($WheelMouse);
+	$fieldList->Subwidget('xscrollbar')->configure(-takefocus => 0);
+	$fieldList->Subwidget('yscrollbar')->configure(-takefocus => 0);
 
 
 	$fieldHead->pack(-side => 'top',
@@ -912,14 +1064,17 @@ sub mainstuff
 			-height => $listheight,
 			-relief => 'sunken',
 			-selectmode => 'browse');
+	&BindMouseWheel($whereList)  if ($WheelMouse);
+	$whereList->Subwidget('xscrollbar')->configure(-takefocus => 0);
+	$whereList->Subwidget('yscrollbar')->configure(-takefocus => 0);
 	$whereRbtn = $whereFrame->Radiobutton(
 			-text   => 'Select',
 			-highlightthickness => 0,
 			-variable=> \$orderSel,
 			-value	=> 'where');
-	&BindMouseWheel($whereList)  if ($WheelMouse);
 
 	$whereHead->pack(-side => 'top',
+			-ipady => 2,
 			-fill   => 'x',
 			-expand => 'yes');
 	$whereRbtn->pack(
@@ -941,6 +1096,8 @@ sub mainstuff
 			-relief => 'sunken',
 			-selectmode => 'browse');
 	&BindMouseWheel($orderList)  if ($WheelMouse);
+	$orderList->Subwidget('xscrollbar')->configure(-takefocus => 0);
+	$orderList->Subwidget('yscrollbar')->configure(-takefocus => 0);
 	$orderRbtn = $orderFrame->Radiobutton(
 			-text   => 'Select',
 			-highlightthickness => 0,
@@ -948,6 +1105,7 @@ sub mainstuff
 			-value	=> 'order');
 
 	$orderHead->pack(-side => 'top',
+			-ipady => 2,
 			-fill   => 'x',
 			-expand => 'yes');
 	$orderRbtn->pack(
@@ -969,7 +1127,10 @@ sub mainstuff
 			-relief => 'sunken',
 			-selectmode => 'browse');
 	&BindMouseWheel($ordbyList)  if ($WheelMouse);
+	$ordbyList->Subwidget('xscrollbar')->configure(-takefocus => 0);
+	$ordbyList->Subwidget('yscrollbar')->configure(-takefocus => 0);
 	$ordbyHead->pack(-side => 'top',
+			-ipady => 2,
 			-fill   => 'x',
 			-expand => 'yes');
 	my $ordbybtnFrame = $ordbyFrame->Frame;
@@ -1046,6 +1207,7 @@ sub mainstuff
 			-buttons        => [$OK, $Cancel],
 	);
 	$OkAll = 'Ok~All';
+	$OkAppend = '~Append';
 	$DIALOG3 = $MainWin->JDialog(
 			-title          => 'Attention!',
 			-text           => 'Everything look ok to commit?',
@@ -1053,6 +1215,14 @@ sub mainstuff
 			-default_button => $Cancel,
 			-escape_button  => $Cancel,
 			-buttons        => [$OK, $OkAll, $Cancel],
+	);
+	$DIALOG3A = $MainWin->JDialog(
+			-title          => 'Attention!',
+			-text           => 'File Exists, Overwrite?',
+			-bitmap         => 'questhead',
+			-default_button => $Cancel,
+			-escape_button  => $Cancel,
+			-buttons        => [$OK, $OkAppend, $Cancel],
 	);
 
 	$fieldList->bind('<ButtonRelease-1>' => [\&fieldClickFn]);
@@ -1073,7 +1243,7 @@ sub mainstuff
 #	$MainWin->bind('<Alt-i>' => [$insertButton => "Invoke"]);
 #	$MainWin->bind('<Alt-s>' => [$selectButton => "Invoke"]);
 #	$MainWin->bind('<Alt-u>' => [$updateButton => "Invoke"]);
-	if ($os =~ /Win/i)
+	if ($os =~ /Win/io)
 	{
 		$tableList->bind('<Enter>', sub { 
 			$MainWin->bind('<Alt-MouseWheel>', [ sub { $tableList->xview('scroll',-($_[1]/120)*1,'units') }, Tk::Ev("D")]);
@@ -1130,10 +1300,13 @@ sub mainstuff
 		$fileMenubtn->entryconfigure('Alter table...', -state => 'disabled');
 		$readonly = 1;
 	}
+$MainWin->update();   #ADDED 20080522 TO FORCE SIZE 2B SET B4 AFTERSTEP MAPPS (SO THE ENTIRE WINDOW IS MAPPED WITHIN THE VISIBLE SCREEN)!
 	$delimText->insert('end',',');
 	$adelimText->insert('end',';');
 	$rdelimText->insert('end','\n');
 	$commitButton->configure(-state => 'disabled')  unless ($nocommit);
+	$MainWin->focus(-force);
+	$MainWin->raise();
 
 	&loadtable;
 	&loadoldfmts;
@@ -1206,9 +1379,9 @@ sub dbconnect
 		$oplist = ['=','!=','like','not like','<','>','<=','>=','is','is not','=^','!^','in'];
 		$sprite = 1;
 	}
-	if ($rhost =~ /\S/)
+	if ($rhost =~ /\S/o)
 	{
-		if ($rhost =~ s/^mysql\://)
+		if ($rhost =~ s/^mysql\://o)
 		{
 			$connectstr = "dbi:mysql:database=$mydbname;host=$rhost";
 			print "-MYSQL REMOTE- connectstr=$connectstr= user=$dbuser= pswd=****= sid=$ENV{ORACLE_SID}= TT=$ENV{TWO_TASK}=\n";
@@ -1216,15 +1389,14 @@ sub dbconnect
 		else
 		{
 			$rhostname = $rhost;
-			$rhostname = $1  if ($rhostname =~ /(.*)\:/);
+			$rhostname = $1  if ($rhostname =~ /(.*)\:/o);
 			$rhostname .= ':';
-			$rhost =~ s/:/;port=/;
+			$rhost =~ s/:/;port=/o;
 			########$mydbname = ''  if ($dbtype eq 'Oracle');
 			$connectstr = "dbi:Proxy:hostname=$rhost;dsn=DBI:$dbtype:$mydbname";
 			print "-PROXY connectstr=$connectstr= user=$dbuser= pswd=****= sid=$ENV{ORACLE_SID}= TT=$ENV{TWO_TASK}=\n";
 			print "-connect($connectstr,$dbuser,****)\n";
 		}
-		#$dB=DBI->connect($connectstr,$dbuser,$dbpswd) 
 		$_ = '';
 		eval "\$dB=DBI->connect('$connectstr','$dbuser','$dbpswd',{$attb})"; 
 		&show_err("-no login: ".($_ ? $_ : ("err=".DBI->err.':'.DBI->errstr)))
@@ -1261,7 +1433,7 @@ sub dbconnect
 		}
 #		elsif ($dbtype eq 'Pg')
 #		{
-#			$dbname = 'dbname='.$dbname  unless ($dbname =~ /\=/);
+#			$dbname = 'dbname='.$dbname  unless ($dbname =~ /\=/o);
 #		}
 		$connectstr = "dbi:$dbtype:$mydbname";
 		$dB->disconnect  if ($dB && $dB ne '1');
@@ -1277,13 +1449,13 @@ sub dbconnect
 	if ($dB)
 	{
 		#if ($dbtype eq 'mysql' || $rhost =~ /\S/)  #CHGD TO NEXT 20020606!
-		if ($dbtype eq 'mysql' || ($rhost =~ /\S/ && $DBI::VERSION < 1.21))
+		if ($dbtype eq 'mysql' || ($rhost =~ /\S/o && $DBI::VERSION < 1.21))
 		{
 			eval "\$dB->{AutoCommit} = 1";
 			$autocommit = 1;
 			warn '-MySQL and DBD::Proxy do not support transactions, everything will be committed imediatly!';
 		}
-		elsif ($attb =~ /AutoCommit\s*\=\>\s*1/)
+		elsif ($attb =~ /AutoCommit\s*\=\>\s*1/o)
 		{
 			eval "\$dB->{AutoCommit} = 1";
 		}
@@ -1296,7 +1468,7 @@ sub dbconnect
 		$nocommit = 1;
 		print "..Logging into \"$dbname\", please stand by...\n";
 		$noplaceholders = ($dbtype eq 'Sybase');  #SYBASE DOES NOT UTILIZE PLACHOLDERS VERY WELL & FREETDS/M$-SQLSERVER DONT DO THEM AT ALL :(
-		$noplaceholders = $1  if ($attb =~ /\bnoplaceholders\s*\=\>\s*(\d)/);
+		$noplaceholders = $1  if ($attb =~ /\bnoplaceholders\s*\=\>\s*(\d)/o);
 	}
 #	else
 #	{
@@ -1346,9 +1518,9 @@ $sUperman = 1; #  if ($ENV{USER} eq 'xjturner');
 	if ($skipfid && open(IN, "<$skipfid"))
 	{
 		$skipfid = <IN>;
-		$skipfid =~ s/\s+$//;
+		$skipfid =~ s/\s+$//o;
 		close IN;
-		$skipfid = '=~ ' . $skipfid  unless ($skipfid =~ /^\s*[\=\!]/);
+		$skipfid = '=~ ' . $skipfid  unless ($skipfid =~ /^\s*[\=\!]/o);
 	}
 	else
 	{
@@ -1366,6 +1538,7 @@ $sUperman = 1; #  if ($ENV{USER} eq 'xjturner');
 			$_ = "\$table_name $skipfid";
 			unless ($skipfid && eval $_)
 			{
+#NOT SURE NEEDED:				$table_name =~ s/\`//go  if ($dbtype eq 'mysql');
 				push(@tables_found,$table_name)  if ($sUperman || &chkacc("$dbname:$dbuser:$table_name",$me));
 			}
 		}
@@ -1380,6 +1553,7 @@ $sUperman = 1; #  if ($ENV{USER} eq 'xjturner');
 			$_ = "\$all_tables[\$i] $skipfid";
 			unless ($skipfid && eval $_)
 			{
+				$all_tables[$i] =~ s/\`//og  if ($dbtype eq 'mysql');
 				push(@tables_found,$all_tables[$i])  if ($sUperman || &chkacc("$dbname:$dbuser:$all_tables[$i]",$me));
 			}
 		}
@@ -1391,7 +1565,7 @@ $sUperman = 1; #  if ($ENV{USER} eq 'xjturner');
 		while (<IN>)
 		{
 			chomp;
-			push(@tables_found,$_)  if (/\S/ && ($sUperman || &chkacc("$dbname:$dbuser:$_",$me)));
+			push(@tables_found,$_)  if (/\S/o && ($sUperman || &chkacc("$dbname:$dbuser:$_",$me)));
 		}
 		close (IN);
 	}
@@ -1402,7 +1576,7 @@ $sUperman = 1; #  if ($ENV{USER} eq 'xjturner');
 		{
 			$tables_found[$i] =~ s/^$dbuser\.//i;
 			#$tables_found[$i] =~ s/\".*?\"\.//i;  #CHGD. TO NEXT 20040819.
-			$tables_found[$i] = $1  if ($tables_found[$i] =~ /\"([^\"]+)\"\s*$/);
+			$tables_found[$i] = $1  if ($tables_found[$i] =~ /\"([^\"]+)\"\s*$/o);
 			$tables_found[$i] =~ tr/a-z/A-Z/;
 		}
 	}
@@ -1468,14 +1642,17 @@ sub loadBrowseChoices
 		while (<IN>)
 		{
 			chomp;
-			($browsefield,$browseval) = split(/=/, $_, 2);
+			($browsefield,$browseval) = split(/\=/o, $_, 2);
 			if ($browsefield eq 'dbname')
 			{
+				my $dfltUser;
 				#$sysidText->insert('end',$browseval);
-				($arg1, $arg2, $arg3, $arg4) = split(/\:/, $browseval);
+				($arg1, $arg2, $arg3, $arg4) = split(/\:/o, $browseval);
+				$dfltUser = $1  if ($arg1 =~ s#\/(.+)$##);
+				$dfltusers{$arg1} = $dfltUser  if ($dfltUser);
 				push (@dbnames, $arg1);
 				$dbthemes{$arg1} = $arg4||'';
-				$attbs{$arg1} = $1  if ($arg2 =~ s/\{([^\}]+)\}//);
+				$attbs{$arg1} = $1  if ($arg2 =~ s/\{([^\}]+)\}//o);
 				@{$precmds{$arg1}} = split(/\;/, $arg2)  if ($arg2);
 				$dbname = $arg1  unless ($b);
 				$dbthemes{$arg1} = $arg4  if ($arg4);
@@ -1485,10 +1662,10 @@ sub loadBrowseChoices
 			elsif ($browsefield eq 'dbuser')
 			{
 				#$dbnameText->insert('end',$browseval);
-				($arg1, $arg2, $arg3, $arg4) = split(/\:/, $browseval);
+				($arg1, $arg2, $arg3, $arg4) = split(/\:/o, $browseval);
 				push (@dbusers, $arg1);
-				$attbs{$arg1} = $1  if ($arg2 =~ s/\{([^\}]+)\}//);
-				@{$precmds{$arg1}} = split(/\;/, $arg2)  if ($arg2);
+				$attbs{$arg1} = $1  if ($arg2 =~ s/\{([^\}]+)\}//o);
+				@{$precmds{$arg1}} = split(/\;/o, $arg2)  if ($arg2);
 				$dbuser = $arg1  unless ($d);
 				$dbthemes{$arg1} = $arg4  if ($arg4);
 				$dbtypes{$arg1} = $arg3  if ($arg3);
@@ -1496,9 +1673,9 @@ sub loadBrowseChoices
 			}
 			elsif ($browsefield eq 'dbtype')
 			{
-				($arg1, $arg2, $arg3) = split(/\:/, $browseval);
-				$attbs{$arg1} = $1  if ($arg2 =~ s/\{([^\}]+)\}//);
-				@{$precmds{$arg1}} = split(/\;/, $arg2)  if ($arg2);
+				($arg1, $arg2, $arg3) = split(/\:/o, $browseval);
+				$attbs{$arg1} = $1  if ($arg2 =~ s/\{([^\}]+)\}//o);
+				@{$precmds{$arg1}} = split(/\;/o, $arg2)  if ($arg2);
 				$dbtype = $arg1;
 				$dbthemes{$arg1} = $arg3  if ($arg3);
 			}
@@ -1515,7 +1692,7 @@ sub loadBrowseChoices
 			}
 			else
 			{
-				${$browsefield} = $browseval  unless (${$browsefield} =~ /\S/);
+				${$browsefield} = $browseval  unless (${$browsefield} =~ /\S/o);
 			}
 		}
 		close IN;
@@ -1525,19 +1702,20 @@ sub loadBrowseChoices
 sub tableClickFnP
 {
 	my $mychoice = $tableList->curselection;
-	$tableList->selection('set',$mychoice);
+	$tableList->selection('set',$mychoice)  if ($mychoice);
 }
 
 sub tableClickFn
 {
 	$mytable = $tableList->get('active');
-	$tableHead->configure(-text => "Table=$mytable");
+#	$tableHead->configure(-text => "Table=$mytable");
+	$tableSearch = $mytable;
 
 #	$statusText->delete('0.0','end'); #DECIDED NOT TO CLEAR STATUS MSGS!
 	$mytable =~ s/.*\.//;
 	if ($dbtype eq 'mysql')
 	{
-		$fieldcsr = $dB->prepare("LISTFIELDS $mytable", {'mysql_use_result' => 1}) 
+		$fieldcsr = $dB->prepare("LISTFIELDS $mytable LIMIT 1", {'mysql_use_result' => 1}) 
 				|| &show_err("fields: prepare: ".$dB->err.':'.$dB->errstr);
 	}
 	elsif ($dbtype eq 'Sybase')  #THIS MAY WORK W/OTHER dB'S, BUT I DON'T KNOW, PLEASE SOMEONE ENLIGHTEN ME!
@@ -1571,6 +1749,7 @@ sub tableClickFn
 	$fieldcsr->finish;
 	$use = 'line';
 	$newwhere = 1;
+	$fieldSearch = '';
 }
 
 sub tableDclickFn
@@ -1625,13 +1804,13 @@ sub ordbyClickFn
 
 sub getfile
 {
-	my $mytitle = "Select delimited flatfile:";
+	my $mytitle = "Select file:";
 	my ($create) = 1;     #THIS MUST BE 1.
 	my ($fileDialog) = $MainWin->JFileDialog(
 			-Title=> $mytitle,
 			-Path => $startfpath || $ENV{PWD},
 			-History => 12,
-			-HistFile => "$ENV{HOME}.sqlhist",
+			-HistFile => "$ENV{HOME}/.sqlhist",
 			-Create=>$create);
 
 	$myfile = $fileDialog->Show();
@@ -1641,8 +1820,8 @@ sub getfile
 	{
 		$fileText->delete('0.0','end');
 		$fileText->insert('end',$myfile);
+		$use = 'file';
 	}
-	$use = 'file';
 }
 
 sub doSprite
@@ -1695,7 +1874,7 @@ sub doselect
 	my ($reccount) = 0;
 #        $statusText->delete('0.0','end');
 	$myfile = $fileText->get;
-	if ($doexcel && $myfile !~ /\S/)
+	if ($doexcel && $myfile !~ /\S/o)
 	{
 		$DIALOG1->configure(
 				-text => "Must specify an output file!");
@@ -1708,15 +1887,15 @@ sub doselect
 	my ($slash) = $/;
 	$/ = $myrjdelim;
 	$errorsfound = 0;
-	if ($use ne 'file')
+	if ($use eq 'line' || $myfile !~ /\S/o)
 	{
 		$usrres = 'No';
 	}
 	elsif (-e $myfile)
 	{
-		$DIALOG2->configure(
+		$DIALOG3A->configure(
 				-text => "File \"$myfile\" exists, overwrite?");
-		$usrres = $DIALOG2->Show();
+		$usrres = $DIALOG3A->Show();
 	}
 	else
 	{
@@ -1726,29 +1905,29 @@ sub doselect
 	if ($use eq 'sql')   #NOTE: SECURITY HOLE: CURRENTLY ONLY CHECKS 1ST TABLE!!!
 	{
 		$myselect = $sqlText->get('0.0','end');
-		$myselect =~ s/;+$//;
+		$myselect =~ s/;+$//o;
 
 		#NEXT 6 LINES ADDED 20030920 TO SUPPORT A "READONLY" MODE!
 
-		if ($readonly && $myselect =~ /^\s*(?:insert|update|drop|delete|truncate)/i)
+		if ($readonly && $myselect =~ /^\s*(?:insert|update|drop|delete|truncate)/io)
 		{
 			&show_err("..MAY NOT PERFORM THIS QUERY IN READONLY MODE!\n");
 			$/ = $slash;
 			return;
 		}
-		if ($myselect =~ /^\s*(?:drop|delete|truncate)/i)
+		if ($myselect =~ /^\s*(?:drop|delete|truncate)/io)
 		{
 			$DIALOG2->configure(
 					-text => "ABOUT TO DROP/DELETE/TRUNCATE TABLE!\nAre you SURE?");
 			return (0)  if ($DIALOG2->Show() ne $OK);
 		}
-		$myselect =~ s/\sinto\s+\:\w+(\s+\:\w+)*//;  #ADDED 20011217.
-		$myselect =~ /\b(?:table|into|from|update)\b\s*([^\s\,]+)/i;
+		$myselect =~ s/\sinto\s+\:\w+(\s+\:\w+)*//o;  #ADDED 20011217.
+		$myselect =~ /\b(?:table|into|from|update)\b\s*([^\s\,]+)/io;
 		$chktable = "\U$1";
 		unless ($sUperman || &chkacc("$dbname:$dbuser:$chktable",$me))
 		{
-			$chktable =~ s/,\s+/,/g;
-			@chktables = split(/,/,$chktable);
+			$chktable =~ s/\,\s+/,/go;
+			@chktables = split(/\,/o,$chktable);
 			foreach (@chktables)
 			{
 				unless (&chkacc("$dbname:$dbuser:$_",$me))
@@ -1767,9 +1946,9 @@ sub doselect
 		my (@orderlist) = $ordbyList->get('0','end');
 		my (@wherelist) = $whereList->get('0','end');
 
-		my $useTop2Limit = '';
-		$useTop2Limit = 'top 1 '  if ($dbtype eq 'Sybase');
-		if ($selcsr = $dB->prepare('select '.$useTop2Limit." * from $mytable", {ldap_sizelimit => 1, sprite_sizelimit => 1}))
+		my $useTop2Limit = ($dbtype eq 'Sybase') ? 'top 1 ' : '';
+		my $postLimit = ($dbtype eq 'mysql') ? 'LIMIT 1' : '';
+		if ($selcsr = $dB->prepare('select '.$useTop2Limit." * from $mytable $postLimit", {ldap_sizelimit => 1, sprite_sizelimit => 1}))
 		{	
 			$selcsr->execute;
 			&show_err("sql select: EXEC ERROR: ".$dB->err.':'.$dB->errstr)  if ($dB->err);
@@ -1805,8 +1984,8 @@ sub doselect
 		$myselect = 'select ';
 		$myselect .= 'distinct '  if ($distinct);
 		$myselect .= "$mysel from ".$mytable;
-		#$myselect .= ' where '.$wherestuff  if ($wherestuff =~ /\S/);
-		if ($wherestuff =~ /\S/ && $#wherelist < 0)
+		#$myselect .= ' where '.$wherestuff  if ($wherestuff =~ /\S/o);
+		if ($wherestuff =~ /\S/o && $#wherelist < 0)
 		{
 			#EMPTY WHERE-LIST - TREAT STUFF IN SQL BOX AS A COMPLETE
 			#WHERE-CLAUSE.
@@ -1817,7 +1996,7 @@ sub doselect
 		elsif ($#wherelist >= 0)
 		{
 			$StuffEnterred = 0;
-			if ($wherestuff =~ /\S/)
+			if ($wherestuff =~ /\S/o)
 			{
 				#TREAT WHERE-STUFF AS LIST OF VALUES
 				#FOR FIELDS LISTED IN ORDER-BY LIST.
@@ -1842,7 +2021,7 @@ sub doselect
 				return (0);
 			}
 		}
-		if ($wherestuff =~ /\S/)
+		if ($wherestuff =~ /\S/o)
 		{
 			$myselect .= ' where ';
 			@fieldvals = ();
@@ -1851,7 +2030,7 @@ sub doselect
 			for ($i=0;$i<=$#wherebits;$i++)
 			{
 				$wherebits[$i] =~ s/\x02/$myajdelim/g;
-				($wherevars,$wherevals) = split(/=/,$wherebits[$i],2);
+				($wherevars,$wherevals) = split(/\=/o,$wherebits[$i],2);
 				if ($ops[$i])
 				{
 					$wherevals =~ s/\\([\%\_])/$1/g;
@@ -1861,7 +2040,7 @@ sub doselect
 					}
 					elsif ($ops[$i] eq ' in')
 					{
-						if ($wherevals =~ /^\s*\(.*\)\s*$/)
+						if ($wherevals =~ /^\s*\(.*\)\s*$/o)
 						{
 							$myselect .= $wherevars . $ops[$i] . ' ' . $wherevals;
 						}
@@ -1883,14 +2062,14 @@ sub doselect
 						{
 							++$bindcnt;
 							$myselect .= $wherevars . $ops[$i] . ' ?';
-							$wherevals .= '%'  if ($ops[$i] =~ /like/ && $wherevals !~ /[\%\_]/);
+							$wherevals .= '%'  if ($ops[$i] =~ /like/o && $wherevals !~ /[\%\_]/o);
 							push (@fieldvals,$wherevals);
 							push (@mytypes, $typesH{$wherevars});
 							push (@mylens, $lensH{$wherevars});
 						}
 					}
 				}
-				elsif ($wherevals =~ /[^\\][\%\_]/)
+				elsif ($wherevals =~ /[^\\][\%\_]/o)
 				{
 					#my @isNumeric = DBI::looks_like_number($wherevals);
 					if ($StuffEnterred == 2 && $wherevals !~ /^([\'\"]).*\1$/
@@ -1933,7 +2112,7 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 						push (@mylens, $lensH{$wherevars});
 					}
 				}
-				$myselect .= $relops[$i]|| (($myajdelim =~ /^\|\|?$/) ? ' or ' : ' and ')  if ($i < $#wherebits);
+				$myselect .= $relops[$i]|| (($myajdelim =~ /^\|\|?$/o) ? ' or ' : ' and ')  if ($i < $#wherebits);
 			}
 		}
 		if ($#orderlist >= 0)
@@ -1942,9 +2121,13 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 			$myselect .= ' DESC'  if ($descorder);
 		}
 	}
+	if ($selectLimit =~ /^\d+$/o)
+	{
+		$myselect .= ' LIMIT ' . $selectLimit  unless ($myselect =~ /limit\s+\d+\s*$/iso);
+	}
 	chomp ($myselect);
 	##$statusText->insert('end',"..DID QUERY: $myselect.  $reccount records selected.\n");
-	$statusText->insert('end',"..DOING QUERY: $myselect.\n");
+	$statusText->insert('end',"\n..DOING QUERY: $myselect.\n");
 	$statusText->see('end');
 	#$fieldcsr = &ora_open($dB,$myselect)
 
@@ -1961,12 +2144,12 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 		$t = $fieldvals[$i];
 		if (defined $t)   #CONDITION & ELSE ADDED 20050209 2 BETTER HANDLE NULLS.
 		{
-			$t =~ s/\'/\'\'/gs;
-			$t =~ s/\?/\x02\^2jSpR1tE\x02/gs;
-#				if ($dbtype eq 'Sybase' && $t =~ /^((?:\'\')?)[\d\.\+\-]+\1$/)  #ADDED 20060427 TO PREVENT ERROR!
+			$t =~ s/\'/\'\'/gso;
+			$t =~ s/\?/\x02\^2jSpR1tE\x02/gso;
+#				if ($dbtype eq 'Sybase' && $t =~ /^((?:\'\')?)[\d\.\+\-]+\1$/o)  #ADDED 20060427 TO PREVENT ERROR!
 			if ($t eq '')
 			{
-				$myselect =~ s/\?/NULL/;
+				$myselect =~ s/\?/NULL/o;
 			}
 			elsif ($StuffEnterred == 2 || ($mytypes[$i] >= 2 && $mytypes[$i] <= 8) 
 					|| $mytypes[$i] == 1700 || $mytypes[$i] == -5
@@ -1982,10 +2165,10 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 		}
 		else
 		{
-			$myselect =~ s/\?/NULL/s;
+			$myselect =~ s/\?/NULL/so;
 		}
 	}
-	$myselect =~ s/\x02\^2jSpR1tE\x02/\?/gs;     #UNPROTECT ?'S IN QUOTES.
+	$myselect =~ s/\x02\^2jSpR1tE\x02/\?/gso;     #UNPROTECT ?'S IN QUOTES.
 	if ($noplaceholders)
 	{
 		$fieldcsr = $dB->prepare($myselect)
@@ -2005,7 +2188,7 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 	}
 	$fieldcsr->execute;
 	&show_err("sql select: EXEC ERROR: ".$dB->err.':'.$dB->errstr)  if ($dB->err);
-	if ($myselect =~ /^\s*(?:create|drop|delete|alter|truncate)/i)
+	if ($myselect =~ /^\s*(?:create|drop|delete|alter|truncate)/io)
 	{
 		&loadtable();
 
@@ -2015,14 +2198,14 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 		if ($ddpath)
 
 		{
-			if ($myselect =~ /^\s*create\s+table\s+([^\s\(]+)/i)
+			if ($myselect =~ /^\s*create\s+table\s+([^\s\(]+)/io)
 			{
 				$mytable = $1;
 				my $primarykeys = '';
-				$primarykeys = $1  if ($myselect =~ /primary\s+keys?\s*\(([^\)]+)\)/s);
+				$primarykeys = $1  if ($myselect =~ /primary\s+keys?\s*\(([^\)]+)\)/so);
 				&dodescribe(4, $primarykeys);
 			}
-			elsif ($myselect =~ /^\s*alter\s+table\s+([^\s\(]+)/i)
+			elsif ($myselect =~ /^\s*alter\s+table\s+([^\s\(]+)/io)
 			{
 				$mytable = $1;
 				my $primarykeys = '';
@@ -2032,7 +2215,7 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 					while (<IN>)
 					{
 						chomp;
-						if (/primary\s+keys?\s*\(([^\)]+)\)/s)
+						if (/primary\s+keys?\s*\(([^\)]+)\)/so)
 						{
 							$primarykeys = $1;
 							last;
@@ -2048,26 +2231,30 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 	}
 	else
 	{
-		$xpopup->destroy  if (Exists($xpopup));
-		$xpopup = $MainWin->Toplevel;
-		$xpopup->title("Selected records: ($myselect)");
+		$selpopup->destroy  if (Exists($selpopup));
+		$selpopup = $MainWin->Toplevel;
+		$selpopup->geometry($popGeometry)  if ($popGeometry);
+		my $winTitle = "Selected records: ($myselect)";
+		$winTitle =~ s/[\r\n]/ /gso;
+		$selpopup->title($winTitle);
 
-		my $xpopupFrame = $xpopup->Frame;
-		$xpopupText = $xpopupFrame->ROText(
+		my $selpopupFrame = $selpopup->Frame;
+		$selpopupText = $selpopupFrame->ROText(
 				-font	=> $fixedfont,                 #PC-SPECIFIC.
 				-relief => 'sunken',
 				-setgrid=> 1,
 				-wrap	=> 'none',
 	                #-height => 25,
 				-width  => 80);
-		my $w_menu = $xpopup->Frame(-relief => 'raised', -borderwidth => 2);
+		my $w_menu = $selpopup->Frame(-relief => 'raised', -borderwidth => 2);
 		$w_menu->pack(-fill => 'x');
 
 		my $fileMenubtn = $w_menu->Menubutton(-text => 'File', -underline => 0);
 		$fileMenubtn->command(-label => 'Break', -underline =>0, -command => sub {$abortit = 1;});
 		$fileMenubtn->command(-label => 'Save',    -underline =>0, -command => [\&doSave]);
 		$fileMenubtn->separator;
-		$fileMenubtn->command(-label => 'Close',   -underline =>0, -command => [$xpopup => 'destroy']);
+		$fileMenubtn->command(-label => 'Close',   -underline =>0, 
+				-command => sub { $MainWin->focus(); $selpopup->destroy; $MainWin->raise() });
 		$fileMenubtn->command(-label => 'eXit',    -underline =>1, -command => \&exitFn);
 
 		my $editMenubtn = $w_menu->Menubutton(-text => 'Edit', -underline => 0);
@@ -2077,47 +2264,55 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 				-label => 'Find', 
 				-underline =>0, 
 				-accelerator => 'Alt-s',
-				-command => [\&newSearch,$xpopupText,1]);
-		$editMenubtn->command(-label => 'Modify search',   -underline =>0, -command => [\&newSearch,$xpopupText,0]);
+				-command => [\&newSearch,$selpopup,$selpopupText,1]);
+		$editMenubtn->command(-label => 'Modify search',   -underline =>0, -command => [\&newSearch,$selpopup,$selpopupText,0]);
 		$editMenubtn->command(
 				-label => 'Again', 
 				-underline =>0, 
 				-accelerator => 'Alt-a',
-				-command => [\&doSearch,$xpopupText,0]);
+				-command => [\&doSearch,$selpopup,$selpopupText,0]);
 
 		$fileMenubtn->pack(-side=>'left');
 		$editMenubtn->pack(-side=>'left');
-			#$xpopup->bind('<Alt-a>' => [\&doSearch,$xpopupText,0]);
-		$xpopupText->bind('<FocusIn>' => [\&textfocusin]);
+			#$selpopup->bind('<Alt-a>' => [\&doSearch,$selpopup,$selpopupText,0]);
+		$selpopupText->bind('<FocusIn>' => [\&textfocusin]);
 
-		my $xpopupScrollY = $xpopupFrame->Scrollbar(
+		my $selpopupScrollY = $selpopupFrame->Scrollbar(
 				-relief => 'sunken',
 				-orient => 'vertical',
-				-command=> [$xpopupText => 'yview']);
-		$xpopupText->configure(-yscrollcommand=>[$xpopupScrollY => 'set']);
+				-command=> [$selpopupText => 'yview']);
+		$selpopupText->configure(-yscrollcommand=>[$selpopupScrollY => 'set']);
 
-		$xpopupScrollY->pack(-side=>'right', -fill=>'y');
-		$xpopupScrollX = $xpopupFrame->Scrollbar(
+		$selpopupScrollY->pack(-side=>'right', -fill=>'y');
+		$selpopupScrollX = $selpopupFrame->Scrollbar(
 				-relief => 'sunken',
 				-orient => 'horizontal',
-				-command=> [$xpopupText => 'xview']);
-		$xpopupText->configure(
-				-xscrollcommand=>[$xpopupScrollX => 'set']);
-		$xpopupScrollX->pack(
+				-command=> [$selpopupText => 'xview']);
+		$selpopupText->configure(
+				-xscrollcommand=>[$selpopupScrollX => 'set']);
+		$selpopupScrollX->pack(
 				-side   => 'bottom', -fill=>'x');
-		$xpopupText->pack(
+		$selpopupText->pack(
 				-side	=> 'left',
 				-expand	=> 'yes',
 				-fill	=> 'both');
-		my $recLabel = $xpopup->Label(
+		my $recLabel = $selpopup->Label(
 				-text   => "$reccount records found",
 				-relief => 'ridge');
-		my $btnFrame = $xpopup->Frame;
+		my $btnFrame = $selpopup->Frame;
 		my $okButton = $btnFrame->Button(
 				-text => 'Ok',
 				-underline => 0,
-		                #-command => [$xpopup => 'destroy']);
-				-command => sub {$abortit = 1; $xpopup->destroy;});
+		                #-command => [$selpopup => 'destroy']);
+				-command => sub
+				{
+					$abortit = 1;
+					$popGeometry = $selpopup->geometry();
+					$popGeometry =~ s/[+-].+$//o  if ($ENV{DESKTOP_SESSION} =~ /AfterStep/io);  #AFTERSTEP BUG - WANTS TO FORCE TO UPPER-LEFT PART OF DESKTOP?!
+					$MainWin->focus();
+					$selpopup->destroy;
+					$MainWin->raise();
+				});
 		$okButton->pack(-side=>'left', -expand => 1);
 		        #$okButton->pack(-side=>'left');
 		my $abortButton = $btnFrame->Button(
@@ -2133,29 +2328,36 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 		$copyButton->pack(
 				-side=>'left', 
 				-expand => 1);
+		my $tofileButton = $btnFrame->Button(
+				-text => 'To File',
+				-underline => 0,
+				-command => sub {&copyToFile($selpopupText);});
+		$tofileButton->pack(-side=>'left', -expand => 1);
 		$btnFrame->pack(
 				-side   => 'bottom',
 				-fill   => 'x',
-				#-expand => 1,
 				-padx   => '2m',
 				-pady   => '2m');
 		$recLabel->pack(
 				-side   => 'bottom');
-		$xpopupFrame->pack(
+		$selpopupFrame->pack(
 				-side	=> 'bottom',
 				-expand	=> 'yes',
 				-fill	=> 'both');
 
-		$xpopup->bind('<Return>' => [$okButton => "Invoke"]);
+		$selpopup->bind('<Return>' => [$okButton => "Invoke"]);
 		$okButton->focus;
-	#	$xpopup->bind('<Alt-o>' => [$okButton => "Invoke"]);
-		$xpopup->bind('<Escape>' => [$okButton => "Invoke"]);
+	#	$selpopup->bind('<Alt-o>' => [$okButton => "Invoke"]);
+		$selpopup->bind('<Escape>' => [$okButton => "Invoke"]);
+		$selpopup->bind('<Alt-a>' => sub { $srchwards = 1; &doSearch($selpopup,$selpopupText,0) });
+		$selpopup->bind('<Alt-b>' => sub { $srchwards = 0; &doSearch($selpopup,$selpopupText,0) });
+		$selpopup->bind('<Alt-s>' => sub { &newSearch($selpopup,$selpopupText,1) });
 
 
 		###$myfmt = $fmtText->get;
 		($mysdelim,$myjdelim) = &getdelims(0);
 		my $doCSV;
-		$doCSV = $1  if ($myjdelim =~ /^\"(\S+)\"$/);  #20060619: HANDLE CSV FILES!
+		$doCSV = $1  if ($myjdelim =~ /^\"(\S+)\"$/o);  #20060619: HANDLE CSV FILES!
 #print "-mytable=$mytable=\n";
 		$myjdelim = $doCSV  if ($doCSV);
 		if ($doexcel)   #ADDED 20010524!
@@ -2171,7 +2373,7 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 			$normalfmt = $xls->addformat();
 			$normalfmt->set_align('left');
 		}
-		if ($myfmt =~ /\S/ && !$doxml)
+		if ($myfmt =~ /\S/o && !$doxml)
 		{
 			foreach $i (@fmtTextList)
 			{
@@ -2194,10 +2396,10 @@ SAMEFMT:
 			#@headerlist = $orderList->get('0','end');
 			#@headerlist = $fieldList->get('0','end')  if ($#headerlist < 0);
 
-			$mymyfmt =~ s/\\\\/\x02/g;   #PROTECT DOUBLE-SLASHES.
-			$mymyfmt =~ s/\\%/\x03/g;   #PROTECT ESCAPED PERCENT-SIGNS.
-			$mymyfmt =~ s/\\\@/\x04/g;   #PROTECT ESCAPED PERCENT-SIGNS.
-			@sumlist = ($mymyfmt =~ /(\@|\%|\#|\&)/g);
+			$mymyfmt =~ s/\\\\/\x02/og;   #PROTECT DOUBLE-SLASHES.
+			$mymyfmt =~ s/\\%/\x03/og;   #PROTECT ESCAPED PERCENT-SIGNS.
+			$mymyfmt =~ s/\\\@/\x04/og;   #PROTECT ESCAPED PERCENT-SIGNS.
+			@sumlist = ($mymyfmt =~ /(\@|\%|\#|\&)/og);
 #print "--sums=".join(',',@sumlist).'= ';
 
 			my ($showsums) = 0;
@@ -2214,18 +2416,18 @@ SAMEFMT:
 					$sumlist[$i] = 0;
 				}
 			}
-			$mymyfmt =~ s/\&/\@/g;
+			$mymyfmt =~ s/\&/\@/og;
 			if ($newfmt)
 			{
-				@fmts = ($mymyfmt =~ /(\s*[\@\&\#\%]\S*)/g);
+				@fmts = ($mymyfmt =~ /(\s*[\@\&\#\%]\S*)/og);
 				$mymyfmt = '';
 				for (my $i=0;$i<=$#fmts;$i++)
 				{
 					$fmts[$i] =~ s/[\@\&\#](\d+)(.)/
 					$2 x ($1 + 1)
 							/e;
-					$fmts[$i] =~ s/[\@\&\#]/\>/;
-					if ($fmts[$i] =~ /\%([\+\-]?)(\d+)/)
+					$fmts[$i] =~ s/[\@\&\#]/\>/o;
+					if ($fmts[$i] =~ /\%([\+\-]?)(\d+)/o)
 					{
 						$lens[$i] = $2;
 						$fmtjust[$i] = ($1 eq '-') ? '<' : '>';
@@ -2233,12 +2435,12 @@ SAMEFMT:
 					else
 					{
 						$lens[$i] = length($fmts[$i]);
-						$fmtjust[$i] = ($fmts[$i] =~ /([\^\>])/) ? $1 : '<';
+						$fmtjust[$i] = ($fmts[$i] =~ /([\^\>])/o) ? $1 : '<';
 					}
 #print "-fmt=$fmts[$i]= len=$lens[$i]= just=$fmtjust[$i]= sep=$seps[$i]=\n";
 					#$mymyfmt .= $fmts[$i];
-					$fmts[$i] =~ s/ \< / \<\</;   #HACK AROUND BUG IN TEXT::AUTOFORMAT :-(
-					$fmts[$i] =~ s/ \> /\>\> /;   #HACK AROUND BUG IN TEXT::AUTOFORMAT :-(
+					$fmts[$i] =~ s/ \< / \<\</o;   #HACK AROUND BUG IN TEXT::AUTOFORMAT :-(
+					$fmts[$i] =~ s/ \> /\>\> /o;   #HACK AROUND BUG IN TEXT::AUTOFORMAT :-(
 				}
 				$mymyfmt = join("\x05", @fmts);
 #print "-1- mymyfmt=$mymyfmt=\n";
@@ -2249,7 +2451,7 @@ SAMEFMT:
 			}
 			else
 			{
-				$mymyfmt =~ s/\@\*/%s/g;
+				$mymyfmt =~ s/\@\*/%s/go;
 				$mymyfmt =~ s/\@>([>]+)/
 						my ($ac) = length($1);
 				'%'.(2+$ac).'s'/eg;
@@ -2265,16 +2467,16 @@ SAMEFMT:
 				$mymyfmt =~ s/\%(\d+)([Wwc])/\%\-$1$2/g;
 				$mymyfmt =~ s/\@/\%1s/g;
 #print "--newfmt=$newfmt= myfmt1=$mymyfmt=\n";
-				@lens = ($mymyfmt =~ /\%[\+\-]?(\d+)/g);
-				@fmts = ($mymyfmt =~ /\%[^a-zA-Z]*([a-zA-Z])/g);
-				@fmtjust = ($mymyfmt =~ /\%(.)/g);
+				@lens = ($mymyfmt =~ /\%[\+\-]?(\d+)/go);
+				@fmts = ($mymyfmt =~ /\%[^a-zA-Z]*([a-zA-Z])/go);
+				@fmtjust = ($mymyfmt =~ /\%(.)/go);
 				for (my $i=0;$i<=$#fmtjust;$i++)
 				{
 					if ($fmtjust[$i] eq '-')
 					{
 						$fmtjust[$i] = '<';
 					}
-					elsif ($fmts[$i] =~ /[c\^\|]/)
+					elsif ($fmts[$i] =~ /[c\^\|]/o)
 					{
 						$fmtjust[$i] = '^';
 					}
@@ -2285,12 +2487,12 @@ SAMEFMT:
 				}
 #print "--fmts=".join(',',@fmts).'= lens='.join(',',@lens).'=  justs='.join(',',@fmtjust);
 				$mymyfmt =~ s/\\n/$myrjdelim/g;
-				$mymyfmt =~ s/\\t/\t/g;
+				$mymyfmt =~ s/\\t/\t/go;
 				$mymyfmt =~ s/(\%[^a-zA-Z]*)[Wwc]/$1s/g;
 			}
-			$mymyfmt =~ s/\x04/\@/g;
-			$mymyfmt =~ s/\x03/\%/g;
-			$mymyfmt =~ s/\x02/\\/g;
+			$mymyfmt =~ s/\x04/\@/og;
+			$mymyfmt =~ s/\x03/\%/og;
+			$mymyfmt =~ s/\x02/\\/og;
 			$mymyfmt .= $myrjdelim;
 			$fmtTextSel = $mymyfmt;
 #print "--myfmt2=$mymyfmt=\n";
@@ -2300,7 +2502,7 @@ SAMEFMT:
 			{
 				for ($i=0;$i<=$#headerlist;$i++)
 				{
-					$headerlist[$i] =~ s/\n/\\n/g; s/\r/\\r/g;
+					$headerlist[$i] =~ s/\n/\\n/og; s/\r/\\r/og;
 					$fullheaderlist[$i] = $headerlist[$i];
 					$headerlist[$i] = substr($headerlist[$i],0,$lens[$i])  if ($lens[$i]);
 					if ($fmts[$i] eq 'c')
@@ -2319,7 +2521,7 @@ SAMEFMT:
 				$myfmtstmtH = &headerfmt($mymyfmt,0);
 				if ($newfmt)
 				{
-					@l = split(/\x05/, $myfmtstmtH);
+					@l = split(/\x05/o, $myfmtstmtH);
 					for ($i=0;$i<=$#l;$i++)
 					{
 						$_ = form($l[$i], $headerlist[$i]);
@@ -2338,7 +2540,7 @@ SAMEFMT:
 					if ($newfmt)
 					{
 						#print OUTFILE form($myfmtstmtH2, @dashes)  if ($myjdelim ne '');
-						@l = split(/\x05/, $myfmtstmtH2);
+						@l = split(/\x05/o, $myfmtstmtH2);
 						for ($i=0;$i<=$#l;$i++)
 						{
 							$_ = form($l[$i], $dashes[$i]);
@@ -2363,7 +2565,7 @@ SAMEFMT:
 					for $i (0..$#headerlist)
 					{
 						$xlssheet->write(0, $i, $fullheaderlist[$i], $excelheader);  #20010604: TRY HERE SO FULL HEADER GETS PRINTED.
-						if ($types[$j] =~ /(NUM|INT|DOUBLE|FLOAT)/)
+						if ($types[$j] =~ /(NUM|INT|DOUBLE|FLOAT|DECIMAL|REAL)/o)
 						{
 							$xlssheet->set_column($i, $i, ($lens[$i]+1)); 
 						}
@@ -2380,13 +2582,13 @@ SAMEFMT:
 				$mypaglen = 0;
 			}
 			$valuestuff = $valusText->get;
-			$valuestuff =~ s/\\h\=.*$//g;
+			$valuestuff =~ s/\\h\=.*$//og;
 			$ffchar = '';   #ADDED 20030812 TO REINITIALIZE.
 			#$ffchar = $1  if ($valuestuff =~ s/(\D+)//);  #CHGD. TO NEXT 20030812.
-			$ffchar = $1  if ($valuestuff =~ s/(\D+|\\x\d\d|\\0)//);
-			$ffchar =~ s/\\n/\n/g;
-			$ffchar =~ s/\\f/\f/g;
-			$valuestuff = -1  unless ($valuestuff =~ m/\d+/);
+			$ffchar = $1  if ($valuestuff =~ s/(\D+|\\x\d\d|\\0)//o);
+			$ffchar =~ s/\\n/\n/og;
+			$ffchar =~ s/\\f/\f/og;
+			$valuestuff = -1  unless ($valuestuff =~ m/\d+/o);
 			$valuestuff = 999999  unless ($valuestuff);
 			$mypaglen = $valuestuff  if ($valuestuff >= 0);
 			#select((select(OUTFILE),$- = 0)[0]);
@@ -2399,10 +2601,10 @@ SAMEFMT:
 			while (@fieldlist = $fieldcsr->fetchrow_array)
 			{
 	              ###########DoOneEvent(1);
-				$xpopup->update;
+				$selpopup->update;
 				if (($reccount % 10) == 9)
 				{
-					$xpopup->idletasks;
+					$selpopup->idletasks;
 					$recLabel->configure(
 							-text   => "$reccount records found so far...");
 				}
@@ -2442,10 +2644,10 @@ SAMEFMT:
 
 				foreach $i (0..$#fieldlist)
 				{
-					$fieldlist[$i] =~ s/\n/\\n/gs;
-					$fieldlist[$i] =~ s/\r/\\r/gs;
+					$fieldlist[$i] =~ s/\n/\\n/ogs;
+					$fieldlist[$i] =~ s/\r/\\r/ogs;
 					@{"fl$i"} = ();
-					if ($fmts[$i] =~ /w/i)
+					if ($fmts[$i] =~ /w/io)
 					{
 						$mylines = 0;
 						$j = $lens[$i];
@@ -2460,7 +2662,7 @@ SAMEFMT:
 							}
 							else
 							{
-								@{"fl$i"} = split(/\n/,$t);
+								@{"fl$i"} = split(/\n/o, $t);
 								#shift (@{"fl$i"});
 								$mylines = $#{"fl$i"};
 							}
@@ -2479,7 +2681,7 @@ SAMEFMT:
 					unless ($fmts[$i] eq 'W')
 					{
 						$sums[$i] += $fieldlist[$i] 
-						if ($sumlist[$i] && $fieldlist[$i] =~ /^[\d\s\.\+\-]*$/);
+						if ($sumlist[$i] && $fieldlist[$i] =~ /^[\d\s\.\+\-]*$/o);
 						$fieldlist[$i] = substr($fieldlist[$i],0,$lens[$i])  if ($lens[$i]);
 					}
 					else
@@ -2499,7 +2701,7 @@ SAMEFMT:
 				if ($newfmt)
 				{
 					#print OUTFILE form($myfmtstmt,@fieldlist);
-					@l = split(/\x05/, $myfmtstmt);
+					@l = split(/\x05/o, $myfmtstmt);
 					for ($i=0;$i<=$#l;$i++)
 					{
 						$_ = form($l[$i], $fieldlist[$i]);
@@ -2518,7 +2720,7 @@ SAMEFMT:
 
 						#!!! NEED TO ADD SOME CODE TO USE FORMATS!!!
 
-						#if ($types[$j] =~ /(NUM|INT|DOUBLE|FLOAT)/)
+						#if ($types[$j] =~ /(NUM|INT|DOUBLE|FLOAT|DECIMAL|REAL)/)
 						if ($fmtjust[$j] eq '>')
 						{
 							$xlssheet->write($k, $j, $fieldlist[$j], $numericfmt);
@@ -2526,11 +2728,11 @@ SAMEFMT:
 						else
 						{
 							$x = (length($fieldlist[$j]) > 255) ? substr($fieldlist[$j],0,255) : $fieldlist[$j];
-							if ($x =~ /^\=/)
+							if ($x =~ /^\=/o)
 							{
 								$xlssheet->write_formula($k, $j, $x, $normalfmt);
 							}
-							if ($x =~ m#^(?:https?\:\/\/|ftp\:\/\/|mailto\:|internal\:|external\:)#)
+							if ($x =~ m#^(?:https?\:\/\/|ftp\:\/\/|mailto\:|internal\:|external\:)#o)
 							{
 								$xlssheet->write_url($k, $j, $x, $normalfmt);
 							}
@@ -2543,7 +2745,7 @@ SAMEFMT:
 					++$k;
 				}
 				++$linecnt;
-				@l = split(/\x05/, $myfmtstmtH2)  if ($newfmt);
+				@l = split(/\x05/o, $myfmtstmtH2)  if ($newfmt);
 				for ($i=0;$i<=$maxlines-1;$i++)
 				{
 					&pageit;
@@ -2572,18 +2774,18 @@ SAMEFMT:
 					{
 						for $j (0..$#fieldlist)
 						{
-							if ($types[$j] =~ /(NUM|INT|DOUBLE|FLOAT)/)
+							if ($types[$j] =~ /(NUM|INT|DOUBLE|FLOAT|DECIMAL|REAL)/o)
 							{
 								$xlssheet->write($k, $j, ${"fl$j"}[$i], $numericfmt);
 							}
 							else
 							{
 								$x = (length(${"fl$j"}[$i]) > 255) ? substr(${"fl$j"}[$i],0,255) : ${"fl$j"}[$i];
-								if ($x =~ /^\=/)
+								if ($x =~ /^\=/o)
 								{
 									$xlssheet->write_formula($k, $j, $x, $normalfmt);
 								}
-								if ($x =~ m#^(?:https?\:\/\/|ftp\:\/\/|mailto\:|internal\:|external\:)#)
+								if ($x =~ m#^(?:https?\:\/\/|ftp\:\/\/|mailto\:|internal\:|external\:)#o)
 								{
 									$xlssheet->write_url($k, $j, $x, $normalfmt);
 								}
@@ -2602,7 +2804,7 @@ SAMEFMT:
 			if ($showsums)
 			{
 				&pageit;
-				@l = split(/\x05/, $myfmtstmtH2)  if ($newfmt);
+				@l = split(/\x05/o, $myfmtstmtH2)  if ($newfmt);
 				if ($myjdelim ne '' && ($linecnt % $mypaglen) > 2)
 				{
 					$myfmtstmtH2 = &headerfmt($mymyfmt,1);
@@ -2684,10 +2886,11 @@ END_XML
 			{		
 				@headerlist = @fieldlist;
 				my $extraFields = $valusText->get;
+				$extraFields =~ s/\\s\=\d+//og;
 				my @extraFieldList;
-				if ($extraFields =~ s/^.*\\h=//)
+				if ($extraFields =~ s/^.*\\h=//o)
 				{
-					@extraFieldList = split(/\,\s*/, $extraFields);
+					@extraFieldList = split(/\,\s*/o, $extraFields);
 					for (my $j=0;$j<=$#extraFieldList;$j++)
 					{
 						$headerlist[$j] = $extraFieldList[$j]  if ($extraFieldList[$j]);
@@ -2698,7 +2901,7 @@ END_XML
 				my (@ntypes) = @{$fieldcsr->{TYPE}};
 				my @types;
 				my @sizes;
-				foreach $i (0..$#types)
+				foreach $i (0..$#ntypes)
 				{
 					$types[$i] = &type_name($ntypes[$i]);
 				}
@@ -2771,15 +2974,15 @@ END_XML
 END_XML
 				}
 				$myline = join("$myjdelim",@headerlist);
-				if ($myrjdelim =~ /\n$/)
+				if ($myrjdelim =~ /\n$/o)
 				{
-					$xpopupText->insert('end',"$myline$myrjdelim");
+					$selpopupText->insert('end',"$myline$myrjdelim");
 				}
 				else
 				{
-					$xpopupText->insert('end',"$myline$myrjdelim\n");
+					$selpopupText->insert('end',"$myline$myrjdelim\n");
 				}
-				#$xpopupText->insert('end',"$myline$/");
+				#$selpopupText->insert('end',"$myline$/");
 				#print OUTFILE2 "$myline$/";  ###if ($usrres eq $OK && $myfile =~ /\S/);
 				print OUTFILE2 "$myline$/"  unless ($doxml);
 			}
@@ -2793,29 +2996,29 @@ END_XML
 				{
 					for (my $i=0;$i<=$#fields;$i++)
 					{
-						$fields[$i] =~ s/\"/\"\"/gs;
+						$fields[$i] =~ s/\"/\"\"/ogs;
 						$fields[$i] = '"'.$fields[$i].'"'
 								if ($fields[$i] =~ /(?:\"\"|\Q$doCSV\E)/);
 					}
 				}
-				$xpopup->update;
+				$selpopup->update;
 				if (($reccount % 10) == 9)
 				{
-					$xpopup->idletasks;
+					$selpopup->idletasks;
 					$recLabel->configure(
 							-text   => "$reccount records found so far...");
 				}
 				last  if ($abortit);
 				$myline = join("$myjdelim",@fields);
-				if ($myrjdelim =~ /\n$/)
+				if ($myrjdelim =~ /\n$/o)
 				{
-					$xpopupText->insert('end',"$myline$myrjdelim");
+					$selpopupText->insert('end',"$myline$myrjdelim");
 				}
 				else
 				{
-					$xpopupText->insert('end',"$myline$myrjdelim\n");
+					$selpopupText->insert('end',"$myline$myrjdelim\n");
 				}
-				#$xpopupText->insert('end',"$myline$/");
+				#$selpopupText->insert('end',"$myline$/");
 				#print OUTFILE2 "$myline$/"; ###!!!!!  if (!$doexcel && $usrres eq $OK && $myfile =~ /\S/);
 				print OUTFILE2 "$myline$/"  unless ($doxml);
 				++$reccount;
@@ -2823,14 +3026,27 @@ END_XML
 				{
 					for $i (0..$#fields)
 					{
-						if ($types[$i] =~ /(NUM|INT|DOUBLE|FLOAT)/)
+						if ($types[$i] =~ /(NUM|INT|DOUBLE|FLOAT|DECIMAL|REAL)/o)
 						{
 							$xlssheet->write($k, $i, $fields[$i], $numericfmt);
 						}
 						else
 						{
+			#				$x = (length($fields[$i]) > 255) ? substr($fields[$i],0,255) : $fields[$i];
+			#				$xlssheet->write($k, $i, $x, $normalfmt);
 							$x = (length($fields[$i]) > 255) ? substr($fields[$i],0,255) : $fields[$i];
-							$xlssheet->write($k, $i, $x, $normalfmt);
+							if ($x =~ /^\=/o)
+							{
+								$xlssheet->write_formula($k, $i, $x, $normalfmt);
+							}
+							if ($x =~ m#^(?:https?\:\/\/|ftp\:\/\/|mailto\:|internal\:|external\:)#o)
+							{
+								$xlssheet->write_url($k, $i, $x, $normalfmt);
+							}
+							else
+							{
+								$xlssheet->write_string($k, $i, $x, $normalfmt);
+							}
 						}
 					}
 					++$k;
@@ -2885,33 +3101,47 @@ END_XML
 		$statusText->see('end');
 		if (open(INFILE,"<.sqlout.tmp"))
 		{
+#print STDERR "-!!!- doexcel=$doexcel= usrres=$usrres= OkAppend=$OkAppend= use=$use= myfile=$myfile=\n";
 			binmode INFILE;    #20000404
-			if (!$doexcel && $usrres eq $OK && $myfile =~ /\S/)
+			my $opened = 0;
+			#if (!$doexcel && $usrres eq $OK && $myfile =~ /\S/o)
+			if (!$doexcel && $myfile =~ /\S/o)
 			{
-				open(OUTFILE2,">$myfile");
+				if ($usrres eq $OK)
+				{
+					open(OUTFILE2,">$myfile") and $opened = 1;
+				}
+				elsif ($usrres eq $OkAppend)
+				{
+					open(OUTFILE2,">>$myfile") and $opened = 1;
+#print STDERR "-???- Should have opened =$myfile= for append! ($!) opened=$opened=\n";
+				}
 				binmode OUTFILE2;    #20000404
 			}
-			#$xpopupText->delete('0.0','end')  if ($usrres eq $OK && $use eq 'file');
-			$xpopupText->delete('0.0','end')  if ($use eq 'file' || $doxml);
+			$selpopupText->delete('0.0','end')  if ($use eq 'file' || $doxml);
 			while (<INFILE>)
 			{
 				s/\<select query\=\"(.*)\"\>/\<select query\=\"$1\" rows\=\"$reccount\"\>/ 
 						if ($doxml);
-				print OUTFILE2  if (!$doexcel && $usrres eq $OK && $myfile =~ /\S/);
-				if ($mymyfmt =~ /\S/ || $use eq 'file' || $doxml)
+				#print OUTFILE2  if (!$doexcel && $usrres eq $OK && $myfile =~ /\S/o);
+				print OUTFILE2  if ($opened);
+				if ($mymyfmt =~ /\S/o || $use eq 'file' || $doxml)
 				{
-					if ($myrjdelim =~ /\n$/)
+					if ($myrjdelim =~ /\n$/o)
 					{
-						$xpopupText->insert('end',"$_");
+						$selpopupText->insert('end',"$_");
 					}
 					else
 					{
-						$xpopupText->insert('end',"$_\n");
+						$selpopupText->insert('end',"$_\n");
 					}
 				}
 			}
-			close (OUTFILE2)  if (!$doexcel && $usrres eq $OK && $myfile =~ /\S/);
+			#close (OUTFILE2)  if (!$doexcel && ($usrres =~ /^(?:$OK|$OkAppend)/o) && $myfile =~ /\S/);
+			close (OUTFILE2)  if ($opened);
 			close (INFILE);
+			$srchwards = 1;
+			$selpopupText->markSet('insert','0.0');
 		}
 		else
 		{
@@ -2919,7 +3149,6 @@ END_XML
 		}
 	}
 	$/ = $slash;
-	#$statusText->see('end');
 }
 
 sub doinsert
@@ -2937,12 +3166,12 @@ sub doinsert
 	my ($slash) = $/;
 	$/ = $myrjdelim;
 	$mymyfmt = $myfmt;
-	$ffchar = $1  if ($mymyfmt =~ s/^\^([\D\S]+)//);
+	$ffchar = $1  if ($mymyfmt =~ s/^\^([\D\S]+)//o);
 	if ($use eq 'sql')
 	{
 		$myinsert = $sqlText->get('0.0','end');
 		$myinsert =~ s/;+$//;
-		if ($myinsert =~ /^\s*(?:drop|delete|truncate)/i)
+		if ($myinsert =~ /^\s*(?:drop|delete|truncate)/io)
 		{
 			$DIALOG2->configure(
 					-text => "ABOUT TO DROP/DELETE/TRUNCATE TABLE!\nAre you SURE?");
@@ -2950,7 +3179,7 @@ sub doinsert
 
 			return (0)  if $usrres ne $OK;
 		}
-		$myinsert =~ /\btable\b\s*(\S+)/i;
+		$myinsert =~ /\btable\b\s*(\S+)/io;
 		$chktable = "\U$1";
 		unless ($sUperman || &chkacc("$dbname:$dbuser:$chktable",$me))
 		{
@@ -2971,7 +3200,7 @@ sub doinsert
 		my (@orderlist) = $orderList->get('0','end');
 		@orderlist = $fieldList->get('0',$fieldList->index('end')-2)  if ($#orderlist < 0); #ADDED 11/06/96 jwt
 		my (@ordbyList) = $ordbyList->get('0','end');
-		my (@sequences) = split(/\,\s*/, $sqlText->get('0.0','end'));
+		my (@sequences) = split(/\,\s*/o, $sqlText->get('0.0','end'));
 		for ($i=0;$i<=$#sequences;$i++)
 		{
 			chomp($sequences[$i]);
@@ -2980,9 +3209,9 @@ sub doinsert
 		my $k = 0;
 		@fields = $fieldList->get('0',$fieldList->index('end')-2);
 		@orderlist = @fields  unless (scalar(@orderlist));
-		my $useTop2Limit = '';
-		$useTop2Limit = 'top 1 '  if ($dbtype eq 'Sybase');
-		if ($inscsr = $dB->prepare('select '.$useTop2Limit." * from $mytable", {ldap_sizelimit => 1, sprite_sizelimit => 1}))
+		my $useTop2Limit = ($dbtype eq 'Sybase') ? 'top 1 ' : '';
+		my $postLimit = ($dbtype eq 'mysql') ? 'LIMIT 1' : '';
+		if ($inscsr = $dB->prepare('select '.$useTop2Limit." * from $mytable $postLimit", {ldap_sizelimit => 1, sprite_sizelimit => 1}))
 		{	
 			$inscsr->execute;
 			&show_err("sql select: EXEC ERROR: ".$dB->err.':'.$dB->errstr)  if ($dB->err);
@@ -3012,7 +3241,7 @@ sub doinsert
 
 		$bindcnt = 0;
 		$valuestuff = $valusText->get;
-		$valuestuff =~ s/\\h\=.*$//g;
+		$valuestuff =~ s/\\[hs]\=.*$//go;
 		if ($use eq 'line')
 		{
 			my (%preboundHash, @vfieldvals);
@@ -3031,7 +3260,7 @@ sub doinsert
 				}
 				$mybinds .= ',';
 			}
-			if ($valuestuff =~ /\S/)
+			if ($valuestuff =~ /\S/o)
 			{
 				$StuffEnterred = 2;
 				@vfieldvals = split($myasdelim,$valuestuff,-1);
@@ -3088,8 +3317,8 @@ sub doinsert
 					$fieldvals[$i] =~ s/\x02/$myajdelim/g;  #THIS NEEDED DUE TO inputvals()!
 #					if ($StuffEnterred < 2)
 #					{
-						$fieldvals[$i] =~ s/^[\'\"]//g;
-						$fieldvals[$i] =~ s/[\'\"]$//g;
+						$fieldvals[$i] =~ s/^[\'\"]//go;
+						$fieldvals[$i] =~ s/[\'\"]$//go;
 #					}
 					$lensH{$orderlist[$i]} = 0  if ($typesH{$orderlist[$i]} == 9);   #SOME DBS, NAMELY PostgreSQL DON'T HAVE CORRECT VALUE HERE (USUALLY TRUNCATE INCORRECTLY TO 4).
 					if ($lensH{$orderlist[$i]})
@@ -3108,18 +3337,18 @@ sub doinsert
 			}
 
 			my $myPHinsert = $myinsert;
-			$statusText->insert('end',"..DOING: $myinsert\n");
+			$statusText->insert('end',"\n..DOING: $myinsert\n");
 			for ($i=0;$i<=$#myinsert;$i++)
 			{
 				if (defined $myinsert[$i])
 				{
-					$myinsert[$i] =~ s/\'/\'\'/g;
+					$myinsert[$i] =~ s/\'/\'\'/go;
 					##$myinsert =~ s/\?/\'$myinsert[$i]\'/;  #CHGD TO NEXT 8: 20060427 TO PREVENT ERROR!
 #							if ($dbtype eq 'Sybase' && $myinsert[$i] =~ /^((?:\'\')?)[\d\.\+\-]+\1$/)
 #							if ($dbtype eq 'Sybase' && (($mytypes[$i] >= 2 && $mytypes[$i] <= 8) || $mytypes[$i] == 1700 || $mytypes[$i] == -5 || $mytypes[$i] == -6))
 					if ($myinsert[$i] eq '')
 					{
-						$myinsert =~ s/\?/NULL/;
+						$myinsert =~ s/\?/NULL/o;
 					}
 #					elsif ($StuffEnterred == 2)
 #					{
@@ -3139,7 +3368,7 @@ sub doinsert
 				}
 				else
 				{
-					$myinsert =~ s/\?/NULL/s;
+					$myinsert =~ s/\?/NULL/so;
 				}
 			}
 			if ($noplaceholders)
@@ -3173,6 +3402,9 @@ sub doinsert
 		}
 		else
 		{
+			my $extraStuff = $valusText->get;
+			my $skipRows = 0;
+			$skipRows = $1  if ($extraStuff =~ s/^\\s\=(\d+)//o);
 			my @colorder;
 my @fnvals = split($myasdelim,$valuestuff,-1);
 			$xls = undef;
@@ -3180,7 +3412,7 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 
 			#OPEN UP THE INPUT SOURCE FILE.
 
-			if ($myfile =~ /\.xls/i)
+			if ($myfile =~ /\.xls/io)
 			{
 				if ($noexcelin)
 				{
@@ -3237,19 +3469,21 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 			}
 			$j = 0;
 #			@fmtheaders = ();  #ADDED 20030521 TO FIX BUG PRODUCING GARBAGE FOR FIELD NAMES IN GENERATED SQLTEMP.PL COMMENTS.
-			if ($headers)
-			{
-				if ($xlssheet)
-				{
-					$xlssheet->next_row  if ($xlssheet->has_data);
-				}
-				else
-				{
-					$_ = <INFILE>;
-					s/^\s+//;
+			$skipRows = 1  if ($headers && $skipRows <= 0);
+#2			for (my $i=1; $i<=$skipRows; $i++)
+#2			{
+#2				if ($xlssheet)
+#2				{
+#2					$xlssheet->next_row  if ($xlssheet->has_data);
+#2print "-???- skip header row!($skipRows)\n";
+#2				}
+#2				else
+#2				{
+#2					$_ = <INFILE>;
+#2					s/^\s+//;
 #					@fmtheaders = split(/\s+/, $_);
-				}
-			}
+#2				}
+#2			}
 			my @timestuff = localtime(time);
 			my ($today);
 			$today = '0'  if ($timestuff[4] < 9);
@@ -3259,19 +3493,19 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 			$today .= $timestuff[3];
 			$today .= '/';
 			$today .= $timestuff[5] + 1900;
-
+			my $xftyp_e = $xlssheet ? 'spreadsheet_file' : 'textfile';
 			my $batchcodePre = <<END_CODE;
 #!/usr/bin/perl
 
-### THIS CODE AUTO-GENERATED $today BY SQL-PERL PLUS v. $vsn TO BACH-LOAD 
+### THIS CODE AUTO-GENERATED $today BY SQL-PERL PLUS v. $vsn TO BATCH-LOAD 
 ###    DATA INTO TABLE "$mytable", 
 ###    OF "$dbtype" DATABASE "$dbname".
 
-unless (\$ARGV[0] && \$ARGV[0] !~ /\-\-/i)
+unless (\$ARGV[0] && \$ARGV[0] !~ /\\-\\-/io)
 {
 	print <<END_MSG;
-..usage: \$0 <textfile> [new]
-..loads data from <textfile> into table \"$mytable\" 
+..usage: \$0 <$xftyp_e> [new]
+..loads data from <$xftyp_e> into table \"$mytable\" 
 	of \"$dbtype\" database \"$dbname\".
 END_MSG
 	exit (0);
@@ -3349,7 +3583,7 @@ END_CODE
 			$myinsert .= ') values (';
 			for (my $i=0;$i<=$#ordbyList;$i++)
 			{
-				if ($sequences[$j] =~ /\S/)
+				if ($sequences[$j] =~ /\S/o)
 				{
 					$myinsert .= $sequences[$j];
 					$myinsert .= '.NEXTVAL'  unless ($myinsert =~ /\.nextval/io);
@@ -3370,7 +3604,7 @@ END_CODE
 					while ($fnval =~ s/(.+)\:(\d+)/$1\?/)
 					{
 						my ($one, $two) = ($1, $2);
-						if ($one =~ /([\'\"])$/)
+						if ($one =~ /([\'\"])$/o)
 						{
 							my $quotechar = $1;
 							push (@mytypes2, 1);   #A STRING TYPE.
@@ -3399,7 +3633,7 @@ END_CODE
 			chop ($myinsert);
 			chop ($myinsert);
 			$myinsert .= ')';
-			$statusText->insert('end',"..DOING: $myinsert\n");
+			$statusText->insert('end',"\n..DOING: $myinsert\n");
 			$statusText->see('end');
 			$batchcode .= $myinsert;
 			if ($noplaceholders)
@@ -3424,7 +3658,7 @@ my \$reccnt = 0;
 my \$errwarncnt = '0';
 my \$rowhasdata = 0;
 END_CODE
-			if (!$xlssheet && $mymyfmt =~ /\S/)
+			if (!$xlssheet && $mymyfmt =~ /\S/o)
 			{
 				$batchcode .= "my \@leftjust = ('<InsertLeftJustValueHere!>');\n";
 			}
@@ -3432,13 +3666,16 @@ END_CODE
 
 print STDERR "..inserting records, please wait..\\n";
 END_CODE
-			if ($headers)
+			if ($skipRows)
 			{
 				if ($xlssheet)
 				{
 					$batchcode .= <<END_CODE;
-\$xlssheet->next_row  if (\$xlssheet->has_data);
-\$cnt++;
+for (my \$i=1;\$i<=$skipRows;\$i++)
+{
+\t\$xlssheet->next_row  if (\$xlssheet->has_data);
+\t\$cnt++;
+}
 END_CODE
 				}
 				else
@@ -3459,7 +3696,8 @@ while (\$xlssheet->has_data)
 	\$rowhasdata = 0;
 	for (my \$i=0;\$i<=\$#infieldvals;\$i++)
 	{
-		if (length(\$infieldvals[\$i]) > 0)
+#		if (length(\$infieldvals[\$i]) > 0)
+		if (\$infieldvals[\$i] =~ /\\S/o)
 		{
 			\$rowhasdata = 1;
 			last;
@@ -3472,7 +3710,8 @@ while (\$xlssheet->has_data)
 	{
 		if (\$types[\$i] >= 2 && \$types[\$i] <= 8)
 		{
-			\$infieldvals[\$colorder[\$i]] =~ s/\-\-/\-/;  #FIX PARSEEXCEL BUG!
+			\$infieldvals[\$colorder[\$i]] =~ s/\\-\\-/\\-/o;  #FIX PARSEEXCEL BUG!
+			\$infieldvals[\$colorder[\$i]] =~ s/^\\$//o;       #STRIP LEADING DOLLAR-SIGNS
 		}
 		if (length(\$infieldvals[\$colorder[\$i]]) > \$lens[\$i])
 		{
@@ -3486,7 +3725,7 @@ END_CODE
 						$batchcode .= <<END_CODE;
 		if (\$infieldvals[\$colorder[\$i]] eq '')
 		{
-			\$inssql =~ s/\\?/NULL/;
+			\$inssql =~ s/\\?/NULL/o;
 			push (\@fieldvals, 'NULL');
 		}
 		elsif ((\$types[\$i] >= 2 
@@ -3520,22 +3759,21 @@ END_CODE
 while (<INFILE>)     #READ RECORDS FROM INPUT FILE.
 {
 	++\$cnt;
-print "--- cnt=\$cnt= ab=\$abortit= line=\$_=\\n";  #DEBUG!
 	\@infieldvals = ();
 	\@fieldvals = ();
 END_CODE
 				$batchcode .= "	next  if (/^$ffchar/);\n"  if ($ffchar && $headers);
-				if ($mymyfmt =~ /\S/)
+				if ($mymyfmt =~ /\S/o)
 				{
-					$batchcode .= "	next  if (/^(?:$mysdelim|\\s)+\$/);\n"  if ($headers && $myjdelim =~ /\S/);    #YES, THIS NEEDS TO BE mySdelim TO ESCAPE SPECIAL CHARS!
-					@fmtblks = ($mymyfmt =~ /(.*?\@(?:\d+[\<\|\>])?)/g);
+					$batchcode .= "	next  if (/^(?:$mysdelim|\\s)+\$/);\n"  if ($headers && $myjdelim =~ /\S/o);    #YES, THIS NEEDS TO BE mySdelim TO ESCAPE SPECIAL CHARS!
+					@fmtblks = ($mymyfmt =~ /(.*?\@(?:\d+[\<\|\>])?)/go);
 					@fmtlens = ();
 					@start = ();
 					@fmtjust = ();
 					$start = 0;
 					for (my $i=0;$i<=$#fmtblks;$i++)
 					{
-						if ($fmtblks[$i] =~ /(.*)\@(\d+)(.)/)
+						if ($fmtblks[$i] =~ /(.*)\@(\d+)(.)/o)
 						{
 							$fmtblk = length($1);
 							$fmtlens[$i] = $2;
@@ -3545,7 +3783,7 @@ END_CODE
 							$start += $fmtlens[$i];
 							$fmtjust[$i] = $3;
 						}
-						elsif ($fmtblks[$i] =~ /(.*)\@/)
+						elsif ($fmtblks[$i] =~ /(.*)\@/o)
 						{
 							$fmtblk = length($1);
 							$fmtlens[$i] = 1;
@@ -3621,13 +3859,13 @@ END_CODE
 	}
 END_CODE
 				}
-				elsif ($myjdelim =~ /^\"(\S+)\"$/)  #20030811: HANDLE CSV FILES!
+				elsif ($myjdelim =~ /^\"(\S+)\"$/o)  #20030811: HANDLE CSV FILES!
 				{
 					my $mysdelimchar = $1;
 					$batchcode .= <<END_CODE;
 	chomp;
 	next  unless (\$_);   #SKIP COMPLETELY BLANK LINES.
-	s/\\"\\"/\\x02\\^1jSpR1tE\\x02/gs;   #PROTECT QUOTE PAIRS (QUOTES ARE ESCAPED BY PARING)
+	s/\\"\\"/\\x02\\^1jSpR1tE\\x02/gso;   #PROTECT QUOTE PAIRS (QUOTES ARE ESCAPED BY PARING)
 	s/\\"([^\\"]*?)\\"/
 			my (\$str) = \$1;
 			\$str =~ s|\Q$mysdelimchar\E|\\x02\\^2jSpR1tE\\x02|gs;   #PROTECT COMMAS IN QUOTES.
@@ -3651,7 +3889,7 @@ END_CODE
 						$batchcode .= <<END_CODE;
 			if (\$infieldvals[\$colorder[\$i]] eq '')
 			{
-				\$inssql =~ s/\\?/NULL/;
+				\$inssql =~ s/\\?/NULL/o;
 				push (\@fieldvals, 'NULL');
 			}
 			elsif ((\$types[\$i] >= 2 
@@ -3699,7 +3937,7 @@ END_CODE
 						$batchcode .= <<END_CODE;
 		if (\$infieldvals[\$colorder[\$i]] eq '')
 		{
-			\$inssql =~ s/\\?/NULL/;
+			\$inssql =~ s/\\?/NULL/o;
 			push (\@fieldvals, 'NULL');
 		}
 		elsif ((\$types[\$i] >= 2 
@@ -3757,7 +3995,7 @@ END_CODE
 				$batchcode .= <<END_CODE;
 	\$inscsr->execute(\@fieldvals) 
 			|| (warn ('Could not execute record# '.(\$reccnt+1).' ('.\$dB->err.':'.\$dB->errstr.')!') && ++\$errwarncnt);
-	\$inscsr->finish();
+#	\$inscsr->finish();
 END_CODE
 			}
 			$batchcode .= "	++\$reccnt;\n";
@@ -3774,6 +4012,7 @@ exit (0);
 END_CODE
 			$batchcodePre .= $batchcode;
 			$batchcode =~ s/exit \(0\)\;/\#exit \(0\)\;/gso;
+		$batchcode =~ s/\$dB\-\>disconnect/\#\$dB\-\>disconnect/gso;
 			$batchcode =~ s/\+\+\$cnt\;/\+\+\$cnt\;\n\tlast  if \(\$abortit\)\;/so;
 			$batchcode =~ s/warn \(/\&show_err\(/gso;
 			$batchcode =~ s/\t\+\+\$reccnt;/
@@ -3845,11 +4084,11 @@ if \(\!\$abortit \&\& \$nocommit \< 2\)
 			$commitcnt = 0;
 			$usrres = '';
 
-			open (OUTFILE2, ">sqltemp.pl");
+			open (OUTFILE2, ">sqltemppre.pl");
 			binmode OUTFILE2;    #20000404
 			print OUTFILE2 $batchcode;
 			close OUTFILE2;
-			open (OUTFILE2, ">sqltemppre.pl");
+			open (OUTFILE2, ">sqltemp.pl");
 			binmode OUTFILE2;    #20000404
 			print OUTFILE2 $batchcodePre;
 			close OUTFILE2;
@@ -3877,13 +4116,13 @@ sub doupdate
 	$bindcnt = 0;
 	@extravals = ();
 	$mymyfmt = $myfmt;
-	$ffchar = $1  if ($mymyfmt =~ s/^\^([\D\S]+)//);
+	$ffchar = $1  if ($mymyfmt =~ s/^\^([\D\S]+)//o);
 
 	if ($use eq 'sql')
 	{
 		$myupdate = $sqlText->get('0.0','end');
-		$myupdate =~ s/;+$//;
-		if ($myupdate =~ /^\s*(?:drop|delete|truncate)/i)
+		$myupdate =~ s/;+$//o;
+		if ($myupdate =~ /^\s*(?:drop|delete|truncate)/io)
 		{
 			$DIALOG2->configure(
 					-text => "ABOUT TO DROP/DELETE/TRUNCATE TABLE!\nAre you SURE?");
@@ -3891,7 +4130,7 @@ sub doupdate
 
 			return (0)  if $usrres ne $OK;
 		}
-		$myupdate =~ /\btable\b\s*(\S+)/i;
+		$myupdate =~ /\btable\b\s*(\S+)/io;
 		$chktable = "\U$1";
 		unless ($sUperman || &chkacc("$dbname:$dbuser:$chktable",$me))
 		{
@@ -3923,13 +4162,14 @@ sub doupdate
 		@orderlist = $fieldList->get('0',$fieldList->index('end')-2)  if ($#orderlist < 0); #ADDED 11/06/96 jwt
 		@fields = $fieldList->get('0',$fieldList->index('end')-2);
 		$wherestuff = $sqlText->get('0.0','end');
-		$wherestuff =~ s/\n//g;
+		$wherestuff =~ s/\n//go;
 		@ops = ();
 		@relops = ();
 		my (@wherelist) = $whereList->get('0','end');
 		my (@lens);   #MOVED OUT OF IF 20000515
-		$useTop2Limit = 'top 1 '  if ($dbtype eq 'Sybase');
-		if ($updcsr = $dB->prepare("select ".$useTop2Limit." * from $mytable"))
+		my $useTop2Limit = ($dbtype eq 'Sybase') ? 'top 1 ' : '';
+		my $postLimit = ($dbtype eq 'mysql') ? 'LIMIT 1' : '';
+		if ($updcsr = $dB->prepare("select ".$useTop2Limit." * from $mytable $postLimit"))
 		{
 			$updcsr->execute;
 			&show_err("sql select: EXEC ERROR: ".$dB->err.':'.$dB->errstr)  if ($dB->err);
@@ -3959,12 +4199,12 @@ sub doupdate
 		@mytypes = ();
 		@mylens = ();
 		$StuffEnterred = 0;
+		$valuestuff = $valusText->get;   #20070504: NEXT 2 LINES MOVED HERE OUT OF IF BELOW TO PROPERLY INITIALIZE!
+		$valuestuff =~ s/\\[hs]\=.*$//go;
 		if ($use eq 'line')
 		{
 			my (@vfieldvals);
-			$valuestuff = $valusText->get;
-			$valuestuff =~ s/\\h\=.*$//g;
-			if ($valuestuff =~ /\S/)
+			if ($valuestuff =~ /\S/o)
 			{
 				$StuffEnterred = 2;
 			}
@@ -3997,7 +4237,7 @@ sub doupdate
 				}
 				$myupdate .= ','  unless ($i == $#orderlist);
 			}
-			if ($wherestuff =~ /\S/ && $#wherelist < 0)  #STUFF IN SQL TEXT BUT NOTHIN IN WHERE LIST.
+			if ($wherestuff =~ /\S/o && $#wherelist < 0)  #STUFF IN SQL TEXT BUT NOTHIN IN WHERE LIST.
 			{
 				#TREAT WHERE STUFF AS COMPLETE WHERE-CLAUSE.
 
@@ -4006,7 +4246,7 @@ sub doupdate
 			}
 			elsif ($#wherelist >= 0)
 			{
-				if ($wherestuff =~ /\S/)
+				if ($wherestuff =~ /\S/o)
 				{
 					#TREAT WHERE-STUFF AS LIST OF VALUES (FROM SQL TEXT)
 					#FOR FIELDS LISTED IN WHERE LIST.
@@ -4062,14 +4302,14 @@ sub doupdate
 			}
 ####			$#fieldvals = $#orderlist  if ($#fieldvals < $#orderlist);  #FILL W/UNDEFs IF THERE WEREN'T ENOUGH VALUES!
 			my $fieldcnt = scalar(@fieldvals);
-			if ($wherestuff =~ /\S/)
+			if ($wherestuff =~ /\S/o)
 			{
 				@wherebits = split($myasdelim,$wherestuff,-1);
 				$wherebits[0] = ''  if ($#wherebits < 0);
 				for ($i=0;$i<=$#wherebits;$i++)
 				{
 					$wherebits =~ s/\x02/$myajdelim/g;
-					($wherevars,$wherevals) = split(/=/,$wherebits[$i]);
+					($wherevars,$wherevals) = split(/\=/o, $wherebits[$i]);
 					if ($ops[$i])
 					{
 						$wherevals =~ s/\\([\%\_])/$1/g;
@@ -4080,7 +4320,7 @@ sub doupdate
 						}
 						elsif ($ops[$i] eq ' in')
 						{
-							if ($wherevals =~ /^\s*\(.*\)\s*$/)
+							if ($wherevals =~ /^\s*\(.*\)\s*$/o)
 							{
 								$myupdate .= $wherevars . $ops[$i] . ' ' . $wherevals;
 							}
@@ -4101,14 +4341,14 @@ sub doupdate
 							{
 								++$bindcnt;
 								$myupdate .= $wherevars . $ops[$i] . ' ?';
-								$wherevals .= '%'  if ($ops[$i] =~ /like/ && $wherevals !~ /[\%\_]/);
+								$wherevals .= '%'  if ($ops[$i] =~ /like/o && $wherevals !~ /[\%\_]/o);
 								push (@fieldvals,$wherevals);
 								push (@mytypes, $typesH{$wherevars});
 								push (@mylens, $lensH{$wherevars});
 							}
 						}
 					}
-					elsif ($wherevals =~ /[^\\][\%\_]/)
+					elsif ($wherevals =~ /[^\\][\%\_]/o)
 					{
 						#my @isNumeric = DBI::looks_like_number($wherevals);
 						if ($StuffEnterred == 2 && $wherevals !~ /^([\'\"]).*\1$/
@@ -4148,11 +4388,11 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 							push (@mylens, $lensH{$wherevars});
 						}
 					}
-					$myupdate .= $relops[$i] || (($myajdelim =~ /^\|\|?$/) ? ' or ' : ' and ')  if ($i < $#wherebits);
+					$myupdate .= $relops[$i] || (($myajdelim =~ /^\|\|?$/o) ? ' or ' : ' and ')  if ($i < $#wherebits);
 				}
 			}
 			my $myPHupdate = $myupdate;
-			$statusText->insert('end',"..DOING: $myupdate\n");
+			$statusText->insert('end',"\n..DOING: $myupdate\n");
 
 			# @fieldvals, @mytypes, @mylens HAVE AN ENTRY FOR EACH NON-PREBOUND FIELD AND WHERECLAUSE PLACEHOLDER.
 			for ($i=0;$i<=$bindcnt;$i++)
@@ -4162,12 +4402,12 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 					if (defined $fieldvals[$i])
 					{
 						$fieldvals[$i] =~ s/^([\'\"])(.*)\1$/$2/;
-						$fieldvals[$i] =~ s/\'/\'\'/g;
+						$fieldvals[$i] =~ s/\'/\'\'/go;
 						##$myupdate =~ s/\?/\'$fieldvals[$i]\'/;  #CHGD TO NEXT 8: 20060427 TO PREVENT ERROR!
 #							if ($dbtype eq 'Sybase' && $fieldvals[$i] =~ /^((?:\'\')?)[\d\.\+\-]+\1$/)
 						if ($fieldvals[$i] eq '' && $i < $fieldcnt)  #FIELDVALS IS A FIELD, NOT A WHERE-ELEMENT.
 						{
-							$myupdate =~ s/\?/NULL/;
+							$myupdate =~ s/\?/NULL/o;
 						}
 						elsif (($mytypes[$i] >= 2 && $mytypes[$i] <= 8) || $mytypes[$i] == 1700 || $mytypes[$i] == -5 || $mytypes[$i] == -6)
 						{
@@ -4180,7 +4420,7 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 					}
 					else   #SHOULDN'T HAPPEN
 					{
-						$myupdate =~ s/\?/NULL/s;
+						$myupdate =~ s/\?/NULL/so;
 					}
 				}
 			}
@@ -4213,12 +4453,12 @@ $wherevals =~ s/^([\'\"])(.*)\1$/$2/;
 		else   #INPUT WILL BE FROM A FILE.
 		{
 			my (@batchwhere, @mytypes1, @mylens1, @mytypes2, @mylens2);
-my @fnvals = split($myasdelim,$valuestuff,-1);
+			my @fnvals = split($myasdelim,$valuestuff,-1);
 			$xls = undef;
 			$xlssheet = undef;
 			my ($mysdelim,$myjdelim) = &getdelims(0);
 
-			unless ($#ordbyList >= 0 || $#wherelist >= 0 || $wherestuff =~ /\S/)
+			unless ($#ordbyList >= 0 || $#wherelist >= 0 || $wherestuff =~ /\S/o)
 			{
 				$DIALOG2->configure(
 						-text => "No WHERE fields specified\nUPDATE ENTIRE TABLE?");
@@ -4234,7 +4474,7 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 
 			#OPEN UP THE INPUT SOURCE FILE.
 
-			if ($myfile =~ /\.xls/i)
+			if ($myfile =~ /\.xls/io)
 			{
 				if ($noexcelin)
 				{
@@ -4312,7 +4552,7 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 				}
 				if ($found)  #FIELD ALSO IN ORDERBYLIST, WILL GO IN "WHERE" LIST.
 				{
-					$wherestuff .= ' and ' if ($wherestuff =~ /\S/);
+					$wherestuff .= ' and ' if ($wherestuff =~ /\S/o);
 					$wherestuff .= $orderlist[$i] . '= ';
 #					$wherestuff .= '?';
 #					push(@myorder2,$i);
@@ -4322,7 +4562,7 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 						while ($fnval =~ s/(.+)\:(\d+)/$1\?/)
 						{
 							my ($one, $two) = ($1, $2);
-							if ($one =~ /([\'\"])$/)
+							if ($one =~ /([\'\"])$/o)
 							{
 								my $quotechar = $1;
 								push (@mytypes2, 1);   #A STRING TYPE.
@@ -4348,7 +4588,7 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 				}
 				else         #FIELD ONLY IN ORDER LIST, WILL GO IN UPDATE LIST.
 				{
-					$setstuff .= ',' if ($setstuff =~ /\S/);
+					$setstuff .= ',' if ($setstuff =~ /\S/o);
 					$setstuff .= $orderlist[$i] . '=';
 #					$setstuff .= '?';
 #					push(@myorder1,$i);
@@ -4358,7 +4598,7 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 						while ($fnval =~ s/(.+)\:(\d+)/$1\?/)
 						{
 							my ($one, $two) = ($1, $2);
-							if ($one =~ /([\'\"])$/)
+							if ($one =~ /([\'\"])$/o)
 							{
 								my $quotechar = $1;
 								push (@mytypes1, 1);   #A STRING TYPE.
@@ -4385,9 +4625,7 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 				}
 				++$nextArg;
 			}
-#print "-update- batchwhere=".join('|',@batchwhere)."=\n";
 			my @colorder = (@myorder1,@myorder2);
-#print "-update- myorder1=".join('|',@myorder1)."= myorder2=".join('|',@myorder2)."=\n";
 
 			my @timestuff = localtime(time);
 			my ($today);
@@ -4399,36 +4637,55 @@ my @fnvals = split($myasdelim,$valuestuff,-1);
 			$today .= '/';
 			$today .= $timestuff[5] + 1900;
 
+			my $xftyp_e = $xlssheet ? 'spreadsheet_file' : 'textfile';
 			my $batchcodePre = <<END_CODE;
 #!/usr/bin/perl
 
-### THIS CODE AUTO-GENERATED $today BY SQL-PERL PLUS v. $vsn TO BACH-UPDATE 
+### THIS CODE AUTO-GENERATED $today BY SQL-PERL PLUS v. $vsn TO BATCH-UPDATE 
 ###    DATA INTO TABLE "$mytable", 
 ###    OF "$dbtype" DATABASE "$dbname".
 
-unless (\$ARGV[0] && \$ARGV[0] !~ /\-\-/i)
+unless (\$ARGV[0] && \$ARGV[0] !~ /\\-\\-/io)
 {
 	print <<END_MSG;
-..usage: \$0 <textfile> 
-..updates data from <textfile> into table \"$mytable\" 
+..usage: \$0 <$xftyp_e> 
+..updates data from <$xftyp_e> into table \"$mytable\" 
 of \"$dbtype\" database \"$dbname\".
 END_MSG
 	exit (0);
 }
 
 use DBI;
+END_CODE
 
+			if ($xlssheet)
+			{
+				$batchcodePre .= <<END_CODE;
+use Spreadsheet::ParseExcel::Simple;
+my \$xls = Spreadsheet::ParseExcel::Simple->read(\$ARGV[0]);
+die ("Could not open \\"$ARGV[0]\\" as Excel spreadsheet (\$@)!\n")
+		unless (\$xls);
+my \@sheets = \$xls->sheets;
+my \$xlssheet = \$sheets[0];
+die ("Could not open 1st sheet of \\"\$ARGV[0]\\" as Excel spreadsheet ()!\n")
+		unless (\$xlssheet);
+END_CODE
+			}
+			else
+			{
+				$batchcodePre .= <<END_CODE;
 open (INFILE, "<\$ARGV[0]") || die "Could not open input file (\$ARGV[0])!";
 binmode INFILE;
 my \$dB=DBI->connect('$connectstr','$dbuser','$dbpswd', {$attb}) 
 		|| die 'Could not connect('.DBI->err.':'.DBI->errstr.')!';
 \$dB->{AutoCommit} = $dB->{AutoCommit};
 END_CODE
+			}
 			my $batchcode = ($noplaceholders) 
 					? "my \$updstr = \"" : "my \$updcsr = \$dB->prepare(\"";
 			$myupdate = "update $mytable set $setstuff ";
 
-			if ($wherestuff =~ /\S/ || $#wherelist >= 0)
+			if ($wherestuff =~ /\S/o || $#wherelist >= 0)
 			{
 				$myupdate .= ' where ' . $wherestuff;
 				$addand = 1;
@@ -4436,25 +4693,26 @@ END_CODE
 			if ($#wherelist >= 0)
 			{
 				$wherestuff = $sqlText->get('0.0','end');
-				$wherestuff =~ s/\\h\=.*$//g;
-				if ($wherestuff =~ /\S/)
+				$wherestuff =~ s/\\h\=.*$//og;
+				if ($wherestuff =~ /\S/o)
 				{
 					$StuffEnterred = 2;
 				}
 				else
 				{
+					$addand = 0;   #ADDED 20070504 TO FIX BUG:  "where and field..."
 					&inputscr(1);  #SETS WHERESTUFF.
 				}
 				if ($StuffEnterred)
 				{
-					$myupdate .= (($myajdelim =~ /^\|\|?$/) ? ' and (' : ' and ') if ($addand);
+					$myupdate .= (($myajdelim =~ /^\|\|?$/o) ? ' and (' : ' and ')  if ($addand);
 					@wherebits = split($myasdelim,$wherestuff,-1);
 					$wherebits[0] = ''  if ($#wherebits < 0);
 					my $isNumeric;
 					for ($i=0;$i<=$#wherebits;$i++)
 					{
 						$wherebits =~ s/\x02/$myajdelim/g;
-						($wherevars,$wherevals) = split(/\=/,$wherebits[$i]);
+						($wherevars,$wherevals) = split(/\=/o, $wherebits[$i]);
 						$isNumeric = ($typesH{$wherevars} >= 2 && $typesH{$wherevars} <= 8) 
 								|| $typesH{$wherevars} == 1700 || $typesH{$wherevars} == -5
 								|| $typesH{$wherevars} == -6;
@@ -4467,7 +4725,7 @@ FOUNDINORDER:						if ($ops[$i])
 							}
 							elsif ($ops[$i] eq ' in')
 							{
-								if ($wherevals =~ /^\s*\(.*\)\s*$/)
+								if ($wherevals =~ /^\s*\(.*\)\s*$/o)
 								{
 									$myupdate .= $wherevars . $ops[$i] . ' ' . $wherevals;
 								}
@@ -4479,19 +4737,17 @@ FOUNDINORDER:						if ($ops[$i])
 							elsif ($isNumeric || $StuffEnterred == 2 || ($wherevals =~ /^([\'\"]).*\1$/))
 							{    #DO NOT ADD SURROUNDING QUOTES.
 								$myupdate .= $wherevars . $ops[$i] . ' ' . $wherevals;
-								$wherevals =~ s/([\'\"])$/\%\1/  if ($ops[$i] =~ /like/ && $wherevals !~ /[\%\_]/);
+								$wherevals =~ s/([\'\"])$/\%\1/  if ($ops[$i] =~ /like/o && $wherevals !~ /[\%\_]/o);
 								++$item;
-#print "-???111111111111- update2: mylens=".join('|',@mylens)."= WV=$wherevars=\n";
 							}
 							else   #VALUE NEEDS QUOTING.
 							{
-								$wherevals .= '%'  if ($ops[$i] =~ /like/ && $wherevals !~ /[\%\_]/);
+								$wherevals .= '%'  if ($ops[$i] =~ /like/o && $wherevals !~ /[\%\_]/o);
 								$myupdate .= $wherevars . $ops[$i] . " '$wherevals'";
 								++$item;
-#print "-???222222222222- update3: mylens=".join('|',@mylens)."= WV=$wherevars=\n";
 							}
 						}
-						elsif ($wherevals =~ /[^\\][\%\_]/)
+						elsif ($wherevals =~ /[^\\][\%\_]/o)
 						{
 							if ($isNumeric || $StuffEnterred == 2 || ($wherevals =~ /^([\'\"]).*\1$/))
 							{
@@ -4502,7 +4758,6 @@ FOUNDINORDER:						if ($ops[$i])
 								$myupdate .= $wherevars . " like '$wherevals'";
 							}
 							++$item;
-#print "-???3333333333333333- update4: mylens=".join('|',@mylens)."= WV=$wherevars=\n";
 						}
 						else
 						{
@@ -4520,10 +4775,10 @@ FOUNDINORDER:						if ($ops[$i])
 						#$myupdate .= ' and '  if ($i < $#wherebits);
 						$myupdate .= $relops[$i]|| ' and '  if ($i < $#wherebits);
 					}
-					$myupdate .= ')'  if ($addand && $myajdelim =~ /^\|\|?$/);
+					$myupdate .= ')'  if ($addand && $myajdelim =~ /^\|\|?$/o);
 				}
 			}
-			$statusText->insert('end',"..DOING: $myupdate\n");
+			$statusText->insert('end',"\n..DOING: $myupdate\n");
 			$statusText->see('end');
 			$batchcode .= $myupdate;
 			if ($noplaceholders)
@@ -4557,7 +4812,7 @@ END_CODE
 \$/ = "$hexvals";
 END_CODE
 			}
-			if (!$xlssheet && $mymyfmt =~ /\S/)
+			if (!$xlssheet && $mymyfmt =~ /\S/o)
 			{
 				$batchcode .= "my \@leftjust = ('<InsertLeftJustValueHere!>');\n";
 			}
@@ -4570,7 +4825,7 @@ END_CODE
 				if ($xlssheet)
 				{
 					$batchcode .= <<END_CODE;
-\$xlssheet->next_row  if (\$xlssheet->has_data);
+\$xlssheet->next_row  if (\$xlssheet->has_data);    #SKIP HEADER ROW
 \$cnt++;
 END_CODE
 				}
@@ -4587,27 +4842,28 @@ END_CODE
 				$batchcode .= <<END_CODE;
 
 my \$rowhasdata;
-while (\$xlssheet->has_data)
+while (\$xlssheet->has_data)    #LOOP THROUGH EACH ROW IN SPREADSHEET:
 {
 	\@infieldvals = \$xlssheet->next_row;
 	++\$cnt;
 	\$rowhasdata = 0;
-	for (my \$i=0;\$i<=\$#infieldvals;\$i++)
+	for (my \$i=0;\$i<=\$#infieldvals;\$i++)    #CHECK TO SEE IF ROW HAS DATA:
 	{
-		if (length(\$infieldvals[\$i]) > 0)
+		if (\$infieldvals[\$i] =~ /\\S/o)
 		{
 			\$rowhasdata = 1;
 			last;
 		}
 	}
-	next  unless (\$rowhasdata);
+	next  unless (\$rowhasdata);    #SKIP EMPTY ROWS.
 
 	\@fieldvals = ();
-	for (my \$i=0;\$i<=\$#colorder;\$i++)
+	for (my \$i=0;\$i<=\$#colorder;\$i++)    #FIX AND CHECK EACH FIELD:
 	{
 		if (\$types[\$i] >= 2 && \$types[\$i] <= 8)
 		{
-			\$infieldvals[\$colorder[\$i]] =~ s/\-\-/\-/;  #FIX PARSEEXCEL BUG!
+			\$infieldvals[\$colorder[\$i]] =~ s/\\-\\-/\\-/o;  #FIX PARSEEXCEL BUG!
+			\$infieldvals[\$colorder[\$i]] =~ s/^\\\$//o;      #STRIP LEADING DOLLAR-SIGNS
 		}
 		if (length(\$infieldvals[\$colorder[\$i]]) > \$lens[\$i])
 		{
@@ -4655,22 +4911,21 @@ END_CODE
 while (<INFILE>)     #READ RECORDS FROM INPUT FILE.
 {
 	++\$cnt;
-print "--- cnt=\$cnt= ab=\$abortit= line=\$_=\\n";  #DEBUG!
 	\@infieldvals = ();
 	\@fieldvals = ();
 END_CODE
 				$batchcode .= "	next  if (/^$ffchar/);\n"  if ($ffchar && $headers);
-				if ($mymyfmt =~ /\S/)
+				if ($mymyfmt =~ /\S/o)
 				{
 					$batchcode .= "	next  if (/^(?:$mysdelim|\\s)+\$/);\n"  if ($headers && $myjdelim =~ /\S/);    #YES, THIS NEEDS TO BE mySdelim TO ESCAPE SPECIAL CHARS!
-					@fmtblks = ($mymyfmt =~ /(.*?\@(?:\d+[\<\|\>])?)/g);
+					@fmtblks = ($mymyfmt =~ /(.*?\@(?:\d+[\<\|\>])?)/go);
 					@fmtlens = ();
 					@start = ();
 					@fmtjust = ();
 					$start = 0;
 					for (my $i=0;$i<=$#fmtblks;$i++)
 					{
-						if ($fmtblks[$i] =~ /(.*)\@(\d+)(.)/)
+						if ($fmtblks[$i] =~ /(.*)\@(\d+)(.)/o)
 						{
 							$fmtblk = length($1);
 							$fmtlens[$i] = $2;
@@ -4680,7 +4935,7 @@ END_CODE
 							$start += $fmtlens[$i];
 							$fmtjust[$i] = $3;
 						}
-						elsif ($fmtblks[$i] =~ /(.*)\@/)
+						elsif ($fmtblks[$i] =~ /(.*)\@/o)
 						{
 							$fmtblk = length($1);
 							$fmtlens[$i] = 1;
@@ -4720,7 +4975,7 @@ END_CODE
 		if (\$types[\$i] != 1)
 		{
 			\$infieldvals[\$colorder[\$i]] =~ s/^\\s+//  if (\$leftjust[\$colorder[\$i]]);
-			\$infieldvals[\$colorder[\$i]] =~ s/\\s+\$//;
+			\$infieldvals[\$colorder[\$i]] =~ s/\\s+\$//o;
 		}
 END_CODE
 					if ($noplaceholders)
@@ -4728,7 +4983,7 @@ END_CODE
 						$batchcode .= <<END_CODE;
 		if (\$infieldvals[\$colorder[\$i]] eq '')
 		{
-			\$updsql =~ s/\\?/NULL/;
+			\$updsql =~ s/\\?/NULL/o;
 			push (\@fieldvals, 'NULL');
 		}
 		elsif ((\$types[\$i] >= 2 
@@ -4756,7 +5011,7 @@ END_CODE
 	}
 END_CODE
 				}
-				elsif ($myjdelim =~ /^\"(\S+)\"$/)  #20030811: HANDLE CSV FILES!
+				elsif ($myjdelim =~ /^\"(\S+)\"$/o)  #20030811: HANDLE CSV FILES!
 				{
 					my $mysdelimchar = $1;
 					$batchcode .= <<END_CODE;
@@ -4834,7 +5089,7 @@ END_CODE
 						$batchcode .= <<END_CODE;
 		if (\$infieldvals[\$colorder[\$i]] eq '')
 		{
-			\$updsql =~ s/\\?/NULL/;
+			\$updsql =~ s/\\?/NULL/o;
 			push (\@fieldvals, 'NULL');
 		}
 		elsif ((\$types[\$i] >= 2 
@@ -4868,7 +5123,7 @@ END_CODE
 			{
 				$batchcode .= <<END_CODE;
 	\$res = 0;
-	if (\$updcsr = \$dB->prepare(\$updsql))
+	if (\$updcsr = \$dB->prepare(\$updsql))    #UPDATE THE RECORDS:
 	{
 		\$res = \$updcsr->execute();
 		if (\$res)
@@ -4892,9 +5147,8 @@ END_CODE
 			else
 			{
 				$batchcode .= <<END_CODE;
-	\$res = \$updcsr->execute(\@fieldvals) 
+	\$res = \$updcsr->execute(\@fieldvals)     #UPDATE THE RECORDS:
 			|| (warn ('Could not execute record# '.(\$reccnt+1).' ('.\$dB->err.':'.\$dB->errstr.')!') && ++\$errwarncnt);
-	\$updcsr->finish();
 END_CODE
 			}
 			$batchcode .= "\t++\$reccnt  if (\$res >= 1);\n";
@@ -4906,7 +5160,15 @@ END_CODE
 }
 \$updcsr->finish();
 \$dB->commit()  unless (\$dB->{AutoCommit});
+END_CODE
+
+			unless ($xlssheet)
+			{
+				$batchcode .= <<END_CODE;
 close INFILE;
+END_CODE
+			}
+			$batchcode .= <<END_CODE;
 \$dB->disconnect();
 print STDERR "..done: \$cnt lines read, ".(\$reccnt)." records updated to \\\"$mytable\\\" from file: \\\"\$ARGV[0]\\\"; \$errwarncnt errors/warnings!\\n";
 exit (0);
@@ -4914,9 +5176,10 @@ exit (0);
 END_CODE
 			$batchcodePre .= $batchcode;
 			$batchcode =~ s/exit \(0\)\;/\#exit \(0\)\;/gso;
+#THIS NEEDS TESTING!			$batchcode =~ s/\$dB\-\>disconnect/\#\$dB\-\>disconnect/gso;
 			$batchcode =~ s/\+\+\$cnt\;/\+\+\$cnt\;\n\tlast  if \(\$abortit\)\;/so;
 			$batchcode =~ s/warn \(/\&show_err\(/gso;
-			$batchcode =~ s/\t\+\+\$reccnt  if \(\$res \>\= 1\)\;/
+			$batchcode =~ s/\t\+\+\$reccnt  if \(\$res \>\= 1\)\;/o
 \tif \(\$res \>\= 1\)
 \t\{
 \t\t\$statusText\-\>insert\(\'end\'\,\"\.\.\.\.\.\.\.DID\(\$reccnt\)\: update \$mytable with \(\"\.join(\'\,\'\,\@fieldvals\)\.\"\)\.\\n\"\)\;
@@ -4988,11 +5251,11 @@ if \(\!\$abortit \&\& \$nocommit \< 2\)
 			$commitcnt = 0;
 			$usrres = '';
 
-			open (OUTFILE2, ">sqltemp.pl");
+			open (OUTFILE2, ">sqltemppre.pl");
 			binmode OUTFILE2;    #20000404
 			print OUTFILE2 $batchcode;
 			close OUTFILE2;
-			open (OUTFILE2, ">sqltemppre.pl");
+			open (OUTFILE2, ">sqltemp.pl");
 			binmode OUTFILE2;    #20000404
 			print OUTFILE2 $batchcodePre;
 			close OUTFILE2;
@@ -5021,7 +5284,7 @@ sub dodelete
 	{
 		$mydelete = $sqlText->get('0.0','end');
 		$mydelete =~ s/;+$//;
-		if ($mydelete =~ /^\s*drop|truncate/i)
+		if ($mydelete =~ /^\s*drop|truncate/io)
 		{
 			$DIALOG2->configure(
 					-text => "ABOUT TO DROP/TRUNCATE TABLE!\nAre you SURE?");
@@ -5029,14 +5292,14 @@ sub dodelete
 
 			return (0)  if $usrres ne $OK;
 		}
-		$mydelete =~ /\btable\b\s*(\S+)/i;
+		$mydelete =~ /\btable\b\s*(\S+)/io;
 		$chktable = "\U$1";
 		unless ($sUperman || &chkacc("$dbname:$dbuser:$chktable",$me))
 		{
 			&show_err("..NOT AUTHORIZED TO ACCESS TABLE \"$chktable\"!\n");
 			return (0);
 		}
-		unless ($mydelete =~ /\s*delete/i)
+		unless ($mydelete =~ /\s*delete/io)
 		{
 			&show_err("..INVALID SQL delete command!\n");
 			return (0);
@@ -5044,9 +5307,9 @@ sub dodelete
 	}
 	else
 	{
-		my $useTop2Limit = '';
-		$useTop2Limit = 'top 1 '  if ($dbtype eq 'Sybase');
-		if ($delcsr = $dB->prepare('select '.$useTop2Limit." * from $mytable", {ldap_sizelimit => 1, sprite_sizelimit => 1}))
+		my $useTop2Limit = ($dbtype eq 'Sybase') ? 'top 1 ' : '';
+		my $postLimit = ($dbtype eq 'mysql') ? 'LIMIT 1' : '';
+		if ($delcsr = $dB->prepare('select '.$useTop2Limit." * from $mytable $postLimit", {ldap_sizelimit => 1, sprite_sizelimit => 1}))
 		{	
 			$delcsr->execute;
 			&show_err("sql select: EXEC ERROR: ".$dB->err.':'.$dB->errstr)  if ($dB->err);
@@ -5076,7 +5339,7 @@ sub dodelete
 		$mydelete = "delete from $mytable";
 		if ($use eq 'line')
 		{
-			if ($wherestuff =~ /\S/ && $#wherelist < 0)
+			if ($wherestuff =~ /\S/o && $#wherelist < 0)
 			{
 				#EMPTY WHERE-LIST - TREAT STUFF IN SQL BOX AS A COMPLETE
 				#WHERE-CLAUSE.
@@ -5088,7 +5351,7 @@ sub dodelete
 			{
 				$mydelete .= ' where ';
 				$StuffEnterred = 0;
-				if ($wherestuff =~ /\S/)
+				if ($wherestuff =~ /\S/o)
 				{
 					#TREAT WHERE-STUFF AS LIST OF VALUES
 					#FOR FIELDS LISTED IN ORDER-BY LIST.
@@ -5097,7 +5360,7 @@ sub dodelete
 					$wherestuff = '';
 					for (0..$#wherelist)
 					{
-						($wherevars,$wherevals) = split(/=/,$wherebits[$i]);
+						($wherevars,$wherevals) = split(/\=/o, $wherebits[$i]);
 						$wherestuff .= $myajdelim  if ($_ > 0);
 						$wherestuff .= $wherelist[$_] . '=' . $fieldvals[$_];
 					}
@@ -5115,7 +5378,7 @@ sub dodelete
 					for ($i=0;$i<=$#wherebits;$i++)
 					{
 						$wherebits =~ s/\x02/$myajdelim/g;
-						($wherevars,$wherevals) = split(/=/,$wherebits[$i]);
+						($wherevars,$wherevals) = split(/\=/o, $wherebits[$i]);
 						if ($ops[$i])
 						{
 							if ($ops[$i] eq ' is' || $ops[$i] eq ' is not')
@@ -5124,7 +5387,7 @@ sub dodelete
 							}
 							elsif ($ops[$i] eq ' in')
 							{
-								if ($wherevals =~ /^\s*\(.*\)\s*$/)
+								if ($wherevals =~ /^\s*\(.*\)\s*$/o)
 								{
 									$mydelete .= $wherevars . $ops[$i] . ' ' . $wherevals;
 								}
@@ -5137,13 +5400,13 @@ sub dodelete
 							{
 								++$bindcnt;
 								$mydelete .= $wherevars . $ops[$i] . ' ?';
-								$wherevals .= '%'  if ($ops[$i] =~ /like/ && $wherevals !~ /[\%\_]/);
+								$wherevals .= '%'  if ($ops[$i] =~ /like/o && $wherevals !~ /[\%\_]/o);
 								push (@fieldvals,$wherevals);
 								push (@mytypes, $typesH{$wherevars});
 								push (@mylens, $lensH{$wherevars});
 							}
 						}
-						elsif ($wherevals =~ /[^\\][\%\_]/)
+						elsif ($wherevals =~ /[^\\][\%\_]/o)
 						{
 							++$bindcnt;
 							#$mydelete .= $wherevars . ' like :' . $bindcnt;
@@ -5194,7 +5457,7 @@ sub dodelete
 #	my ($usrres) = $DIALOG2->Show();
 
 #	return (0)  if $usrres ne $OK;
-	$statusText->insert('end',"..DOING:  $mydelete!\n");
+	$statusText->insert('end',"\n..DOING:  $mydelete!\n");
 	$statusText->see('end');
 	if ($#fieldvals >= 0)
 	{
@@ -5206,13 +5469,13 @@ sub dodelete
 		{
 			if (defined $fieldvals[$i])
 			{
-				$fieldvals[$i] =~ s/\'/\'\'/g;
-				$fieldvals[$i] =~ s/\?/\x02\^2jSpR1tE\x02/gs;
+				$fieldvals[$i] =~ s/\'/\'\'/go;
+				$fieldvals[$i] =~ s/\?/\x02\^2jSpR1tE\x02/gso;
 				##$mydelete =~ s/\?/\'$fieldvals[$i]\'/;  #CHGD TO NEXT 8: 20060427 TO PREVENT ERROR!
 #					if ($dbtype eq 'Sybase' && $fieldvals[$i] =~ /^((?:\'\')?)[\d\.\+\-]+\1$/)
 				if ($fieldvals[$i] eq '')
 				{
-					$mydelete =~  s/\?/NULL/;
+					$mydelete =~  s/\?/NULL/o;
 				}
 				elsif ($StuffEnterred == 2 || ($mytypes[$i] >= 2 && $mytypes[$i] <= 8) 
 						|| $mytypes[$i] == 1700 || $mytypes[$i] == -5
@@ -5228,7 +5491,7 @@ sub dodelete
 			}
 			else
 			{
-				$mydelete =~ s/\?/NULL/s;
+				$mydelete =~ s/\?/NULL/so;
 			}
 		}
 		$DIALOG2->configure(
@@ -5272,7 +5535,12 @@ sub dodelete
 
 sub editfid
 {
-	$xpopup->destroy  if (Exists($xpopup));
+	if (Exists($xpopup))
+	{
+		$MainWin->focus();
+		$xpopup->destroy;
+		$MainWin->raise();
+	}
 	$myfile = $fileText->get;
 	if (open(INFILE,"<$myfile"))
 	{
@@ -5340,7 +5608,11 @@ sub editfid
 		my $canButton = $btnFrame->Button(
 				-text => 'Cancel',
 				-underline => 0,
-				-command => [$xpopup => 'destroy']);
+				-command => sub {
+						$MainWin->focus();
+						$xpopup->destroy;
+						$MainWin->raise();
+				});
 		$canButton->pack(
 				-side => 'left',
 				-expand=> 1);
@@ -5352,7 +5624,7 @@ sub editfid
 		while (<INFILE>)
 		{
 			last  if ($abortit);
-			if ($myrjdelim =~ /\n$/)
+			if ($myrjdelim =~ /\n$/o)
 			{
 				$xpopupText->insert('end',$_);
 			}
@@ -5372,6 +5644,7 @@ sub editfid
 	}
 	else
 	{
+		$MainWin->raise();
 		&show_err("..Couldn't read flatfile:  \"$myfile\"!\n");
 	}
 }
@@ -5384,7 +5657,7 @@ sub savechgs
 		my ($fidcontents) = $xpopupText->get('0.0','end');
 		my ($myrsdelim,$myrjdelim) = &getdelims(1);  #FETCH RECORD DELIMITERS.
 		chomp ($fidcontents);
-		$fidcontents =~ s/\n//g  unless ($myrjdelim =~ /\n$/);
+		$fidcontents =~ s/\n//go  unless ($myrjdelim =~ /\n$/o);
 		print OUTFILE2 $fidcontents;	
 		close (OUTFILE2);
 	}
@@ -5392,7 +5665,9 @@ sub savechgs
 	{
 		&show_err("..Couldn't save flatfile:  \"$myfile\"!\n");
 	}
+	$MainWin->focus();
 	$xpopup->destroy;
+	$MainWin->raise();
 }
 
 sub inputscr
@@ -5413,7 +5688,7 @@ sub inputscr
 #	if ($selcsr = $dB->prepare("select * from $mytable", {ldap_sizelimit => 1, sprite_sizelimit => 1}))
 	if ($dbtype eq 'mysql')
 	{
-		$selcsr = $dB->prepare("LISTFIELDS $mytable", {'mysql_use_result' => 1})
+		$selcsr = $dB->prepare("LISTFIELDS $mytable LIMIT 1", {'mysql_use_result' => 1})
 	}
 	elsif ($dbtype eq 'Sybase')  #THIS MAY WORK W/OTHER dB'S, BUT I DON'T KNOW, PLEASE SOMEONE ENLIGHTEN ME!
 	{
@@ -5506,7 +5781,7 @@ sub inputblk
 		#$fi = $orderlist[$i];
 		$fi = $i;
 		$eLen{$fi} = $mylen;
-		$mylen = 4  if (${'eS'.$whichinput.'x'.$i} =~ /^is/);
+		$mylen = 4  if (${'eS'.$whichinput.'x'.$i} =~ /^is/o);
 		$mylen = 40  if ($mylen < 40 && ${'eS'.$whichinput.'x'.$i} eq 'in');
 		#eval (" \$eF${fi} = \$xpopup->Frame;
 		$eval = " \$eF${fi} = \$xpopup->Frame;
@@ -5556,14 +5831,14 @@ sub inputblk
 				-highlightthickness => 2,
 				-takefocus => 1,
 				-command => sub {
-						if (\$eS${whichinput}x${fi} =~ /^is/)
+						if (\$eS${whichinput}x${fi} =~ /^is/o)
 						{
 							\$eTv${whichinput}x${fi} = 'NULL';
 							\$eT${fi}->configure( -state => 'disabled',
 								-takefocus => 0, -relief => 'flat',
 								-width => 4);
 						}
-						elsif (\$eS${whichinput}x${fi} =~ /^in/)
+						elsif (\$eS${whichinput}x${fi} =~ /^in/o)
 						{
 							\$eTv${whichinput}x${fi} = '';
 							\$eT${fi}->configure( -state => 'normal',
@@ -5595,9 +5870,9 @@ sub inputblk
 		$eval .= "
 				\$eT${fi} = \$eF${fi}->Entry(
 				-textvariable => \\\$eTv${whichinput}x${fi},
-				-relief => ((\$eS${whichinput}x${fi} =~ /^is/) ? 'flat' : 'sunken'),
-				-state => ((\$eS${whichinput}x${fi} =~ /^is/) ? 'disabled' : 'normal'),
-				-takefocus => ((\$eS${whichinput}x${fi} =~ /^is/) ? 0 : 1),
+				-relief => ((\$eS${whichinput}x${fi} =~ /^is/o) ? 'flat' : 'sunken'),
+				-state => ((\$eS${whichinput}x${fi} =~ /^is/o) ? 'disabled' : 'normal'),
+				-takefocus => ((\$eS${whichinput}x${fi} =~ /^is/o) ? 0 : 1),
 				-width  => $mylen);
 		\$eT${fi}->bind('<FocusIn>' => [\\\&textfocusin]);
 		\$eT${fi}->pack(
@@ -5638,7 +5913,7 @@ sub inputblk
 			-pady =>  4,
 			-text => 'Cancel',
 			-underline => 0,
-			-command => [sub{$StuffEnterred = 0; $xpopup->destroy}]);
+			-command => [sub{ $StuffEnterred = 0; $MainWin->focus(); $xpopup->destroy; $MainWin->raise() }]);
 	$canButton->pack(-side=>'left', -expand=>1, -padx=>'2m', -pady=>'2m');
 	$canButton->bind('<Return>' => "Invoke");
 	my ($clearButton) = $btnFrame->Button(
@@ -5663,7 +5938,7 @@ sub inputblk
 	#$xpopup->bind('<Escape>' => [$canButton => "Invoke"]);
 	$xpopup->bind('<Escape>' => sub
 	{
-		(${"eTv${whichinput}x${fstart}"} =~ /\S/) ? 
+		(${"eTv${whichinput}x${fstart}"} =~ /\S/o) ? 
 		$clearButton->Invoke : $canButton->Invoke;
 	}
 	);
@@ -5724,7 +5999,9 @@ sub inputvals
 			###$wherestuff .= 'NULL'  unless ($v gt '');
 		}
 	}
+	$MainWin->focus();
 	$xpopup->destroy;	
+	$MainWin->raise();
 	$StuffEnterred = 1;
 	$newwhere = 0;
 }
@@ -5761,6 +6038,7 @@ sub getdelims
 	}
 	return ($mysdelim,$myjdelim);
 }
+
 sub setdfltfmt
 {
 	my ($mysdelim, $i, $j, $mylen, @types, @lens);
@@ -5771,7 +6049,7 @@ sub setdfltfmt
 		###$fmtText->delete('0.0','end');
 		$myfmt = '';
 		$fmtTextSel = $myfmt;
-		if ($mysdelim =~ /^[=\-\._]/)
+		if ($mysdelim =~ /^[=\-\._]/o)
 		{
 			$delimText->delete('0.0','end');
 			$delimText->insert('end',',');
@@ -5780,7 +6058,7 @@ sub setdfltfmt
 	}
 	else
 	{
-		if ($mysdelim !~ /^[=\-\._]/)
+		if ($mysdelim !~ /^[=\-\._]/o)
 		{
 			$delimText->delete('0.0','end');
 			$delimText->insert('end','-');
@@ -5794,19 +6072,19 @@ sub setdfltfmt
 		my $extraFields = $valusText->get;
 		my @extraFieldList;
 		@extraFieldList = split(/\,\s*/, $extraFields)
-				if ($extraFields =~ s/^.*\\h=//);
+				if ($extraFields =~ s/^.*\\h=//o);
 
 		if ($use eq 'sql')   #NOTE: SECURITY HOLE: CURRENTLY ONLY CHECKS 1ST TABLE!!!
 		{
 			my $mymyselect = $sqlText->get('0.0','end');
-			$mymyselect =~ s/;+$//;
+			$mymyselect =~ s/;+$//o;
 
 			#NEXT 6 LINES ADDED 20030920 TO SUPPORT A "READONLY" MODE!
 
-			if ($mymyselect =~ /^\s*select/i)
+			if ($mymyselect =~ /^\s*select/io)
 			{
 				$mymyselect =~ s/^\s*select/select top 1 /i  if ($dbtype eq 'Sybase');
-				$mymyselect .= ' LIMIT 1'  if ($dbtype eq 'mysql');
+				$mymyselect .= ' LIMIT 1'  if ($dbtype eq 'mysql' && $mymyselect !~ /limit\s+\d+\s*$/io);
 				$fieldcsr = $dB->prepare($mymyselect, {ldap_sizelimit => 1, sprite_sizelimit => 1}) 
 						|| &show_err("sql select: OPEN ERROR: ".$dB->err.':'.$dB->errstr);
 
@@ -5825,7 +6103,7 @@ sub setdfltfmt
 			@fields = $fieldList->get('0',$fieldList->index('end')-2);
 			if ($dbtype eq 'mysql')
 			{
-				$selcsr = $dB->prepare("LISTFIELDS $mytable", {'mysql_use_result' => 1});
+				$selcsr = $dB->prepare("LISTFIELDS $mytable LIMIT 1", {'mysql_use_result' => 1});
 			}
 			elsif ($dbtype eq 'Sybase')  #THIS MAY WORK W/OTHER dB'S, BUT I DON'T KNOW, PLEASE SOMEONE ENLIGHTEN ME!
 			{
@@ -6005,7 +6283,7 @@ sub dodescribe
                 #-pady =>  4,
 			-text => 'Ok',
 			-underline => 0,
-			-command => [$tpopup => 'destroy']);
+			-command => sub {$MainWin->focus(); $tpopup->destroy; $MainWin->raise()});
         #$okButton->pack(-side=>'left', -padx=>'2m', -pady=>'2m');
 	$okButton->pack(-side=>'left', -expand => 1);
 	my $copyButton = $buttonFrame->Button(
@@ -6016,6 +6294,20 @@ sub dodescribe
 			-command => sub {&doCopy();});
         #$copyButton->pack(-side=>'left', -padx=>'2m', -pady=>'2m');
 	$copyButton->pack(-side=>'left', -expand => 1);
+	my $tofileButton = $buttonFrame->Button(
+                #-padx => 11,
+                #-pady =>  4,
+			-text => 'To File',
+			-underline => 0,
+			-command => sub {&copyToFile($tpopupText);});
+	$tofileButton->pack(-side=>'left', -expand => 1);
+	my $srchButton = $buttonFrame->Button(
+                #-padx => 11,
+                #-pady =>  4,
+			-text => 'Find',
+			-underline => 0,
+			-command => sub {&newSearch($tpopup,$tpopupText,1)});
+	$srchButton->pack(-side=>'left', -expand => 1);
 	$tpopupFrame->pack(
 			-side	=> 'top',
 			-expand	=> 'yes',
@@ -6030,16 +6322,21 @@ sub dodescribe
 	$tpopup->bind('<Return>' => [$okButton => "Invoke"]);
 	$tpopup->bind('<Alt-o>' => [$okButton => "Invoke"]);
 	$tpopup->bind('<Escape>' => [$okButton => "Invoke"]);
+	$tpopup->bind('<Alt-a>' => sub { $srchwards = 1; &doSearch($tpopup,$tpopupText,0) });
+	$tpopup->bind('<Alt-b>' => sub { $srchwards = 0; &doSearch($tpopup,$tpopupText,0) });
+	$tpopup->bind('<Alt-s>' => sub { &newSearch($tpopup,$tpopupText,1) });
+	$tpopupText->focus;   #MAKE THIS THE "ACTIVE" WIDGET FOR CUT/COPY/PASTE.
 	$okButton->focus;
 
 SKIP_TK: ;
 
-	my (@fieldlist) = $orderList->get('0','end');
+	my (@fieldlist) = $distinct ? $orderList->get('0','end') : $fieldList->get('0','end');
 
 	my ($mysel) = join(',',@fieldlist);
+	$mysel =~ s/\,\<\-\-\-filler\-\-\-\>//o;
 	$mysel = '*'  if ($#fieldlist < 0);
 	my ($myselect) = "select $mysel from ".$mytable;
-	$myselect = "LISTFIELDS $mytable"  if ($dbtype eq 'mysql' && $mysel eq '*');
+	$myselect = "LISTFIELDS $mytable LIMIT 1"  if ($dbtype eq 'mysql' && $mysel eq '*');
 	#$fieldcsr = &ora_open($dB,$myselect)
 	#$fieldcsr = $dB->prepare($myselect)  #CHGD. TO NEXT FOR SPEED 20020530.
 	if ($dbtype eq 'mysql')
@@ -6057,10 +6354,12 @@ SKIP_TK: ;
 	@fieldlist = @{$fieldcsr->{NAME}};   #ADDED 20030620.
 	#my (@types) = &orax_types($fieldcsr,1);
 	my (@types) = @{$fieldcsr->{TYPE}};
+	my $t;
 	foreach $i (0..$#types)
 	{
-		$types[$i] = &type_name($types[$i]);
-		$types[$i] .= "[$types[$i]]"  if ($d);
+		$t = &type_name($types[$i]);
+		$t = '{'.$types[$i].'} '.$t  if ($d || $fmt == -1);
+		$types[$i] = $t;
 	}
 	my (@nlens) = @{$fieldcsr->{PRECISION}};
 	#my (@lens) = @nlens;
@@ -6186,12 +6485,17 @@ SKIP_TK: ;
 
 sub clearFn
 {
-	$orderList->delete('0.0','end');
-	$whereList->delete('0.0','end');
-	$ordbyList->delete('0.0','end');
-	$valusText->delete('0.0','end');
+#	$orderList->delete('0.0','end');
+#	$whereList->delete('0.0','end');
+#	$ordbyList->delete('0.0','end');
+#	$valusText->delete('0.0','end');
 	$sqlText->delete('0.0','end');
-	$orderSel = 'order';
+#	$orderSel = 'order';
+}
+
+sub clearMsgFn
+{
+	$statusText->delete('0.0','end');
 }
 
 sub doSave
@@ -6202,13 +6506,13 @@ sub doSave
 			-Title=>$mytitle,
 			-Path => $startfpath || $ENV{PWD},
 			-History => 12,
-			-HistFile => "$ENV{HOME}.sqlhist",
+			-HistFile => "$ENV{HOME}/.sqlhist",
 			-Create=>$create);
 
 	$myfile = $fileDialog->Show();
 	#$startfpath = $fileDialog->{Configure}{-Path};
 	$startfpath = $fileDialog->getLastPath();
-	if ($myfile =~ /\S/)
+	if ($myfile =~ /\S/o)
 	{
 		system "cp .sqlout.tmp $myfile";
 	}
@@ -6224,9 +6528,9 @@ sub initsec
 	my ($table, @users);
 
 	$me = `id`;
-	$me =~ /\(([^)]+)\)/;
+	$me =~ /\(([^)]+)\)/o;
 	$me = $1;
-	$me = 'everyone'  unless ($me =~ /\w/);
+	$me = 'everyone'  unless ($me =~ /\w/o);
 	print "-user=$me.\n";
 	my $tablefid = $ENV{HOME} . '/.sqlpl.' . &tolower(substr($dbtype,0,3));
 	unless (-e $tablefid)
@@ -6243,7 +6547,7 @@ sub initsec
 		while (<IN>)
 		{
 			chomp;
-			($table,@users) = split(/ /);
+			($table,@users) = split(/ /o);
 			push (@ttables,$table);
 			$users = "@users";
 			push (@tusers,$users);
@@ -6255,7 +6559,7 @@ sub chkacc
 {
 	my ($arg1,$arg2) = @_;
 
-	$arg1 =~ s/\:\w+\./\:/;    #ADDED 20010830!
+	$arg1 =~ s/\:\w+\./\:/o;    #ADDED 20010830!
 #print "arg1=$arg1= arg2=$arg2= tablecnt=$#ttables=\n";
 	for (0..$#ttables)
 	{
@@ -6264,7 +6568,7 @@ sub chkacc
 		if ($ttables[$_] eq $arg1)
 		{
 			#return (1)  if ($arg1 eq '--'  || $arg1 eq $dbname);
-			@users = split(/ /,$tusers[$_]);
+			@users = split(/ /o, $tusers[$_]);
 			my $crypted;
 			foreach $u (@users)
 			{
@@ -6280,6 +6584,7 @@ sub chkacc
 
 sub newSearch
 {
+	my $whichTopLevel = shift;
 	my ($whichTextWidget) = shift;
 	my ($newsearch) = shift;
 
@@ -6298,7 +6603,7 @@ sub newSearch
 			$clipboard = $whichTextWidget->get('foundme.first','foundme.last');
 		}
 	}
-	unless (defined($clipboard) && $clipboard =~ /\S/)
+	unless (defined($clipboard) && $clipboard =~ /\S/o)
 	{
 		eval
 		{
@@ -6391,7 +6696,7 @@ sub newSearch
 			-pady => 4,
 			-text => 'Ok',
 			-underline => 0,
-			-command => [\&doSearch,$whichTextWidget,1]);
+			-command => [\&doSearch,$whichTopLevel,$whichTextWidget,1]);
 	$okButton->pack(-side=>'left', -expand=>1, -pady=> 12);
 	my $pasteButton = $btnframe->Button(
 			-pady => 4,
@@ -6410,7 +6715,7 @@ sub newSearch
 			-pady => 4,
 			-text => 'Cancel',
 			-underline => 0,
-			-command => sub {$srchpopup->destroy});
+			-command => sub {$whichTopLevel->focus(); $srchpopup->destroy; $whichTopLevel->raise() });
 	$canButton->pack(-side=>'left', -expand=>1, -pady=> 12);
 	my $clearButton = $btnframe->Button(
 			-pady => 4,
@@ -6445,6 +6750,7 @@ sub newSearch
 
 sub doSearch
 {
+	my $whichTopLevel = shift;
 	my ($whichTextWidget) = shift;
 	my ($newsearch) = shift;
 
@@ -6452,12 +6758,19 @@ sub doSearch
 	#$findMenubtn->entryconfigure('Modify search', -state => 'normal');
 	#$againButton->configure(-state => 'normal');
 	$srchstr = $srchText->get  if ($newsearch);
-	$srchpopup->destroy  if (Exists($srchpopup));
-
+	if (Exists($srchpopup))
+	{
+		$whichTopLevel->focus();
+		$srchpopup->destroy;
+		$whichTopLevel->raise();
+	}
 	$srchpos = '0.0'  if ($whichTextWidget->index('insert') >= $whichTextWidget->index('end') - 1);
 	$lnoffset = !$newsearch;
 	$srchpos = $whichTextWidget->index('insert')  unless ($newsearch && $startattop);
 	$startattop = 0;
+#print "-1srchpos=$srchpos= wards=$srchwards= end=".$whichTextWidget->index('end')."=\n";
+	$srchpos = '0.0'  unless ($srchpos && ($srchwards != 1 || $srchpos < $whichTextWidget->index('end') - 1));
+#print "-2srchpos=$srchpos= wards=$srchwards=\n";
 	if ($srchwards)
 	{
 		$srchpos = $whichTextWidget->search(-forwards, $srchopts, -count => \$lnoffset, '--', $srchstr, $srchpos, 'end');
@@ -6489,7 +6802,7 @@ sub doSearch
 	}	
 	else
 	{
-		&show_err("..Did not find \"$srchstr\".\n");
+		&show_err("..Did not find \"$srchstr\"!");
 	}
 }
 
@@ -6555,7 +6868,7 @@ sub loadcols
 	my ($i, $myrdelim, $myfdelim);
 
 	###$myfmt = $fmtText->get;
-	if ($myfmt =~ /\S/)
+	if ($myfmt =~ /\S/o)
 	{
 		my (@types) = @{$fieldcsr->{TYPE}};
 		foreach $i (0..$#types)
@@ -6587,8 +6900,8 @@ sub loadcols
 				#??? join('|',@titles);
 				for ($i=0;$i<=$#titles;$i++)
 				{
-					$types[$i] = $1  if ($titles[$i] =~ s/\=(.*)//);
-					$lens[$i] = $1  if ($types[$i] =~ s/\((\d+).*//);
+					$types[$i] = $1  if ($titles[$i] =~ s/\=(.*)//o);
+					$lens[$i] = $1  if ($types[$i] =~ s/\((\d+).*//o);
 					$indx = index($_,$titles[$i],$indx);
 					####$newfmt .= '@';
 					if ($indx > 1)
@@ -6626,9 +6939,9 @@ sub loadcols
 			$i = $_;
 			$myrdelim = $_;
 			$myrdelim =~ s/.*?([^\w\)]+)($)/$1$2/;
-			$i =~ s/[\=\(\)\*]//g;
+			$i =~ s/[\=\(\)\*]//go;
 			$myfdelim = ',';
-			$myfdelim = $1  if ($i =~ /(\W+)/);
+			$myfdelim = $1  if ($i =~ /(\W+)/o);
 			$myrdelim =~ s/$myfdelim//;
 			$/ = $myrdelim;
 			chomp;
@@ -6642,7 +6955,7 @@ sub loadcols
 				$myfdelim = eval("return(\"$myfdelim\");");
 #				$myfdelim = "\Q$myfdelim\E";
 			}
-			@titles = split(/$myfdelim/,$_,-1);
+			@titles = split(/\Q$myfdelim\E/,$_,-1);
 			close INFILE;
 			$delimText->delete('0.0','end');
 			$rdelimText->delete('0.0','end');
@@ -6652,7 +6965,7 @@ sub loadcols
 		}
 		for ($i=0;$i<=$#titles;$i++)
 		{
-			$titles[$i] =~ s/\=.*//;
+			$titles[$i] =~ s/\=.*//o;
 			#$titles[$i] =~ tr/a-z/A-Z/  if ($dbtype eq 'Oracle' || $dbtype eq 'Sprite');  #CHGD. TO NEXT 20020624!
 			$titles[$i] =~ tr/a-z/A-Z/  if ($dbtype eq 'Oracle');
 			$orderList->insert('end',$titles[$i]);
@@ -6687,7 +7000,7 @@ sub xloadcols
 
 	for ($i=0;$i<=$#titles;$i++)
 	{
-		$titles[$i] =~ s/\=.*//;
+		$titles[$i] =~ s/\=.*//o;
 		$orderList->insert('end',$titles[$i]);
 	}
 	$/ = $slash;
@@ -6769,12 +7082,39 @@ sub pageit
 	{
 		print OUTFILE $ffchar;
 		$myfmtstmtH = &headerfmt($mymyfmt,0);
-		printf OUTFILE $myfmtstmtH, @headerlist;
+		if ($newfmt)
+		{
+			@l = split(/\x05/o, $myfmtstmtH);
+			for ($i=0;$i<=$#l;$i++)
+			{
+				$_ = form($l[$i], $headerlist[$i]);
+				chomp  unless ($i == $#l);
+				print OUTFILE;
+			}
+		}
+		else
+		{
+			printf OUTFILE $myfmtstmtH, @headerlist;
+		}
 		++$linecnt;
 		if ($myjdelim ne '')
 		{
 			$myfmtstmtH2 = &headerfmt($mymyfmt,1);
-			printf OUTFILE $myfmtstmtH2, @dashes  if ($myjdelim ne '');
+			if ($newfmt)
+			{
+				#print OUTFILE form($myfmtstmtH2, @dashes)  if ($myjdelim ne '');
+				@l = split(/\x05/o, $myfmtstmtH2);
+				for ($i=0;$i<=$#l;$i++)
+				{
+					$_ = form($l[$i], $dashes[$i]);
+					chomp  unless ($i == $#l);
+					print OUTFILE;
+				}
+			}
+			else
+			{
+				printf OUTFILE $myfmtstmtH2, @dashes  if ($myjdelim ne '');
+			}
 			++$linecnt;
 		}
 	}
@@ -6814,7 +7154,13 @@ sub type_name     #ORACLE-SPECIFIC.
 	$typehash{93} = 'SMALLDATETIME';  #ODBC-SPECIFIC (M$-SQLSERVER)
 	$typehash{113} = 'BLOB';          #ORACLE-SPECIFIC
 	$typehash{1700} = 'NUMBER';       #PostgreSQL-SPECIFIC
-	return $dB->type_info($tp)->{TYPE_NAME} || $typehash{"$tp"} || "-unknown($tp)!-";
+
+	$typeoverride{3} = 'DECIMAL';     #MYSQL-SPECIFIC (MYSQL TYPE_INFO BROKEN?)
+	$typeoverride{4} = 'INTEGER';     #MYSQL-SPECIFIC (MYSQL TYPE_INFO BROKEN?)
+#print "-tp=$tp=\n";	
+	my $tpfrominfo = 0;
+	eval { $tpfrominfo = $dB->type_info($tp)->{TYPE_NAME}; };
+	return $typeoverride{"$tp"} || $tpfrominfo || $typehash{"$tp"} || "-unknown($tp)!-";
 }
 
 sub exitFn
@@ -6911,7 +7257,7 @@ sub setTheme
 	my ($bg, $fg, $c, $font);
 	eval $themeCodeHash{$_[0]};
 	my $fgisblack;
-	$fgisblack = 1  if ($fg =~ /black/i); #KLUDGE SINCE SETPALETTE/SUPERTEXT BROKE!
+	$fgisblack = 1  if ($fg =~ /black/io); #KLUDGE SINCE SETPALETTE/SUPERTEXT BROKE!
 	if ($c)
 	{
 		$MainWin->setPalette($c);
@@ -6922,16 +7268,16 @@ sub setTheme
 		$c = $MainWin->optionGet('tkPalette','*');
 		$MainWin->setPalette($c)  if ($c);
 	}
-	&setFont($font)  if ($font =~ /\d/);
+	&setFont($font)  if ($font =~ /\d/o);
 }
 
 sub xmlescape
 {
 	my $res;
 
-	$_[1] =~ s/\&/\&amp;/gs;
+	$_[1] =~ s/\&/\&amp;/gso;
 	eval "\$_[1] =~ s/(".join('|', keys(%xmleschash)).")/\$xmleschash{\$1}/gs;";
-	if ($_[1] =~ /[\x00-\x08\x0A-\x0C\x0E-\x19\x7f-\xff]/)
+	if ($_[1] =~ /[\x00-\x08\x0A-\x0C\x0E-\x19\x7f-\xff]/o)
 	{
 		return "   <$_[0] xml:encoding=\"base64\">" 
 				. MIME::Base64::encode_base64($_[1]) . "</$_[0]>";
@@ -6951,7 +7297,7 @@ sub doprocess    #ADDED 20030703
 				-Title => 'Select file containing an SQL stmt. to process.',
 				-Path => $startfpath || $ENV{PWD},
 				-History => 12,
-				-HistFile => "$ENV{HOME}.sqlhist",
+				-HistFile => "$ENV{HOME}/.sqlhist",
 				-Create => 0);
 		$myfile = $fileDialog->Show();
 		#$startfpath = $fileDialog->{Configure}{-Path};
@@ -6987,7 +7333,7 @@ sub doxeq
 				-Title => 'Select file containing SQL to execute.',
 				-Path => $startfpath || $ENV{PWD},
 				-History => 12,
-				-HistFile => "$ENV{HOME}.sqlhist",
+				-HistFile => "$ENV{HOME}/.sqlhist",
 				-Create => 0);
 		$myfile = $fileDialog->Show();
 		#$startfpath = $fileDialog->{Configure}{-Path};
@@ -7002,9 +7348,9 @@ sub doxeq
 			while (<IN>)
 			{
 				chomp;
-				s/\r//g;
-				$sqlstmt .= "$_ "  unless (/^(?:\#|\-\-)/);
-				$sqlstmt =~ s/\;\s+$//;
+				s/\r//go;
+				$sqlstmt .= "$_ "  unless (/^(?:\#|\-\-)/o);
+				$sqlstmt =~ s/\;\s+$//o;
 				if ($sqlstmt)
 				{
 #print "-XEQ SQL=$sqlstmt=\n";
@@ -7035,7 +7381,7 @@ sub doUseDB
 	$csr->finish;
 	&loadtable;
 	&setTheme($usetheme)  if ($usetheme);
-	$mainTitle =~ s/ using\:.+$//;
+	$mainTitle =~ s/ using\:.+$//o;
 	$mainTitle .= " using:$usedb.";
 	$MainWin->title($mainTitle);
 
@@ -7050,6 +7396,80 @@ sub fmtChars
 	$str =~ s/([\x00\x07-\x0d\\])/$specialHash{$1}/g;
 	$str =~ s/([\x00-\x1f\x80-\xa0])/sprintf '\\x%02x', ord($1)/eg;
 	return $str;
+}
+
+sub copyToFile
+{
+	my $textWidget = shift;
+
+	$myfile = $fileText->get;
+	if ($myfile !~ /\S/o)
+	{
+#		$DIALOG1->configure(
+#				-text => "Must specify an output file!");
+#		$usrres = $DIALOG1->Show();
+#		return;
+		my $fileDialog = $MainWin->JFileDialog(
+				-Title=> 'Specify file to write to:',
+				-Path => $startfpath || $ENV{PWD},
+				-History => 12,
+				-HistFile => "$ENV{HOME}/.sqlhist",
+				-Create=>1
+		);
+
+		$myfile = $fileDialog->Show();
+#print "-???- myfile=$myfile=\n";
+		$startfpath = $fileDialog->getLastPath();
+		return  unless ($myfile =~ /\S/o)
+	}
+	if (-e $myfile)
+	{
+		$DIALOG3A->configure(
+				-text => "File \"$myfile\" exists, overwrite?");
+		$usrres = $DIALOG3A->Show();
+	}
+	else
+	{
+		$usrres = $OK;
+	}
+	my $opened = 0;
+	if ($usrres eq $OK)
+	{
+		open OUTFILE, ">$myfile" and $opened = 1;
+	}
+	elsif ($usrres eq $OkAppend)
+	{
+		open OUTFILE, ">>$myfile" and $opened = 1;
+	}
+	if ($opened)
+	{
+		my $text = $textWidget->get('0.0', 'end');
+		print OUTFILE $text;
+		close OUTFILE;
+		$statusText->insert('end',"..Copied window text to File: \"$myfile\".\n");
+	}
+}
+
+sub setDefaults
+{
+	$dbtype = $dbtypes{$dbname}  if ($dbtypes{$dbname});
+	$dbuser = $dfltusers{$dbname}  if ($dfltusers{$dbname});
+	my $pswdFid = $ENV{HOME} . '/.sqlpds.txt';
+	$pswdText->delete(0, 'end');
+	if (open (IN, $pswdFid))
+	{
+		while (<IN>)
+		{
+			chomp;
+			if (/^$dbtype\.$dbname\.$dbuser\:(.+)$/)
+			{
+				my $pswd = $1;
+				$pswdText->insert('end', $pswd);
+				last;
+			}
+		}
+		close IN;
+	}
 }
 
 __END__

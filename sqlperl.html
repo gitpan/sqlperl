@@ -18,7 +18,7 @@ company which hosts this site.  Direct all comments or complaints to them
 (<A HREF="http://www.virtualave.com">http://www.virtualave.com</A>)</FONT>
 </CENTER>
 
-<DIV ALIGN=right><P><I><FONT SIZE=-1>Updated: 8/18/99</FONT></I></P></DIV>
+<DIV ALIGN=right><P><I><FONT SIZE=-1>Updated: 10/21/06</FONT></I></P></DIV>
 
 <P>
 <HR WIDTH="80%" SIZE="5"></P>
@@ -136,10 +136,18 @@ be inserted into the table separated by the delimiter character. NOTE:
 This line is also used to specify the number of lines to be displayed on
 a page when doing &quot;SELECT&quot; (see &quot;<A HREF="#formatting">Formatting</A>&quot;).</P>
 
+<P>You can also specify alternate column headers here (the default is to use the 
+field names) by specifying:  "\h=col-header1,col-header2,,col-header4...".  In this case, 
+the header for the third column will be the field name. </P>
+
 <P>NOTE: non-numeric values must be surrounded with quotes. Single or double-quotes
 are ok, but if a value is to contain quotes, then use the other type of
 quotes, ie. &quot;John M'cBride&quot;. You can also leave this field blank
 and you will be prompted for the values. </P>
+
+<P>For inserts from a file, you can specify how many records in the file to skip before 
+loading records into the file by specifying &quot;\s=#&quot;.  The default is 1 if the 
+Header box is checked, zero otherwise. </P>
 
 <P><I>6) SQL</I>: </P>
 
